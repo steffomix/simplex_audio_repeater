@@ -1,0 +1,45 @@
+Schritt 1:
+Ich möchte einen einfachen Simplex Repeater mit python und python gui erstellen. Er soll ab einem einstellbaren Eingangspegel anfangen audio von einer einstellbaren Quelle für eine einstellbare Zeit in sekunden Audio aufzeichnen und dann sofort wieder abspielen. wärend des abspielens soll nicht aufgenommen werden. Es soll nichts gespeichert werden.
+
+
+Schritt 2:
+Das Programm tut genau was es soll. Es müssen jedoch einige Anpassungen gemacht werden um die Funktionalität zu optimieren.
+ 
+Die "Einstellbare Aufnahmezeit" soll die "Einstellbare maximale Aufnahmezeit" werden. Die Aufnahme soll abgebrochen werden wenn der Eingangspegel einen einstellbaren Abbruch-Pegel für eine einstellbare Zeit in Sekunden unterschritten wird. Dieser Abbruch-Pegel darf nicht höher sein als der maximale Eingagspegel. Der Schieberegler des Abbruch-Pegels darf nicht über den Wert des maximalen Eingangspegels hinaus geschoben werden können und dann einfach blockieren. Sollte das blockieren nicht möglich sein, soll sich der Maximalwert des Abbruch-Pegelschiebers entsprechend automatisch anpassen. 
+
+Sollte der maximale Eingangspegel unter den aktuellen Abbruch-Pegel geschoben werden, soll sich dieser mitschieben damit gewährleistet ist, dass der Abbruch-Pegel stets unterhalb des maximalen Eingangspegel bleibt.
+
+Schritt 3:
+Das funktioniert perfekt! Nun noch eine optische Verbesserung, sofern das möglich ist. Die Zahl des Aktuellen Pegels soll duch einen grauen Balken ersetzt werden, der unterhalb von "Aktueller Pegel" steht und über die ganze Breite geht und dessen maximum gleich dem maximimalen einstellbaren Eingangspegel sein soll. Außerdem soll ein vertikaler grünen Balken integriert sein, der den aktuell eingestellten Eingangspegel darstellt und ein roter Balken, der den aktuellen Abbruchpegel darstellt.
+
+Außerdem soll der "Aufnahme läuft..." Balken ähnlich einer Füllstandsanzeige bei der Aufnahme wachsen und beim Abspielen wieder Schrumpfen.
+
+Schritt 4:
+Das Programm funktioniert einwandfrei und die optischen Anpassungen sind super! Der Geräuschpegel ist jedoch etwas zu flatterhaft. Kannst du bitte einen einstellbaren Glättungsfaktor für den Eingangspegel hinzufügen? Der Glättungsfaktor soll als gleitender Durchschnitt über die letzten n Messwerte berechnet werden, wobei n der einstellbare Glättungsfaktor ist. Ein höherer Wert für n führt zu einer stärkeren Glättung des Pegels. Der Glättungsfaktor soll als zusätzlicher Schieberegler in der GUI hinzugefügt werden, mit einem Bereich von 1 bis 1000 millisekunden. Standardmäßig soll der Glättungsfaktor auf 50ms gesetzt sein. Dieser Schieberegler sollte zwischen dem Schieberegler für den Abbruch-Pegel und der Anzeige für den aktuellen Pegel platziert werden.
+
+Nach dem Abspielen der Aufnahme kommt es vor, dass das Signal gewissermaßen nachhallt und eine Aufnahme auslöst. Daher soll eine eindstellbare "Totzeit" nach dem Abspielen hinzugefügt werden, während der keine Aufnahme gestartet werden kann. Die Totzeit soll in Sekunden einstellbar sein und standardmäßig auf 2 Sekunden gesetzt sein.
+
+Schritt 5:
+Es hat sich herausgestellt, dass eine einfache Dämpfung nicht ausreicht. Der Ansteigender und abfallender Pegel soll jeweils mit einem einstellbaren Anstiegs- und Abfallverhalten versehen werden. Der Anstiegswert soll in Dezibel pro Sekunde (dB/s) und der Abfallwert ebenfalls in Dezibel pro Sekunde (dB/s) einstellbar sein. Standardmäßig soll der Anstiegswert auf 10 dB/s und der Abfallwert auf 15 dB/s gesetzt sein.
+
+Die Audio Eingangs- und Ausgangsquelle auf Default Systemquelle bzw. Systemausgabe gesetzt werden, wenn keine spezifische Quelle ausgewählt wurde.
+
+Die eingstellten Werte sollen in einer lokalen Konfigurationsdatei gespeichert und beim start des Programms geladen werden.
+
+Schritt 6:
+Die Glättung kann entfernt werden, da sie nicht die gewünschte Wirkung erzielt
+
+Schritt 7:
+Die DB Anstiegs- und Abfalldämpfung, die die einfache Dämpfung ersetzen sollten scheinen wirkungslos oder fehlerhaft zu sein. Kannst du den Fehler finden und beheben? Außerdem sollten die Regler bis auf 0 (aus) gehen.
+
+Schritt 8:
+Ich sehe, da hat es von meiner Seite aus eine Verwechslung gegeben. Die Dämpfungsfunktionen sollen sich den Eingangspegel beziehen, der in der Pegelanzeige angezeigt wird. Eine Angabe oder gar Berechnung in dB/s ist hier nicht notwendig. Die Dämpfung soll erkennen ob der Eingangspegel ansteigt oder abfällt und die Regler sollen sollen diesen Anstieg oder Abfall separat dämpfen. Ein höherer Reglerswert der Anstiegsdämpfung soll dazu führen, dass der angezeigte Pegel langsamer ansteigt wenn der Eingangspegel steigt. Ein höherer Reglerwert der Abfalldämpfung soll dazu führen, dass der angezeigte Pegel langsamer abfällt wenn der Eingangspegel fällt. Die Dämpfungswerte sollen in Millisekunden angegeben werden, also wie lange es dauert bis der angezeigte Pegel den tatsächlichen Eingangspegel erreicht hat. Standardmäßig soll die Anstiegsdämpfung auf 0ms und die Abfalldämpfung auf 100ms gesetzt sein. Der gedämpfte Pegel soll weiterhin für die Aufnahme-Triggerung verwendet werden.
+
+Schritt 9:
+Es scheint also würden zum starten und beenden der Aufnahme nicht der gedämpfte Eingangspegel verwendet werden, sondern der rohe Eingangspegel. Bitte behebe das so, dass der gedämpfte Pegel für die Aufnahme-Triggerung verwendet wird.
+
+Schritt 10:
+Das speichern der Einstellungen in der lokalen Konfigurationsdatei "~/.simplex_repeater_config.json" funktioniert nicht richtig. Bitte behebe das so, dass alle einstellbaren Werte korrekt gespeichert und geladen werden.
+
+Schritt 11:
+Wenn der Startpegel nach dem Start des Programms noch nicht bewegt wurde, lässt sich der Abbruchpegel über den Startwert hinaus schieben. Möglicherweise fehlt ein Initialisierungswert. Bitte behebe das.
