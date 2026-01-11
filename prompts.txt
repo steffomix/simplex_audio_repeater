@@ -43,3 +43,6 @@ Das speichern der Einstellungen in der lokalen Konfigurationsdatei "~/.simplex_r
 
 Schritt 11:
 Wenn der Startpegel nach dem Start des Programms noch nicht bewegt wurde, lässt sich der Abbruchpegel über den Startwert hinaus schieben. Möglicherweise fehlt ein Initialisierungswert. Bitte behebe das.
+
+Schritt 12:
+Dadurch dass die Eingangs- und Ausgangsquellen nun permanent sind, muss die aktelle Quelle bei einer Änderung automatisch getrennt und die neue Quelle verbunden werden. Bitte füge diese Funktionalität hinzu.

@@ -39,6 +39,12 @@ class SimplexRepeater:
         self.current_damped_level = 0  # Aktueller gedämpfter Pegel
         self.last_update_time = time.time()  # Zeitpunkt der letzten Pegel-Aktualisierung
         
+        # Streams für dynamisches Umschalten
+        self.stream_in = None
+        self.stream_out = None
+        self.streams_lock = threading.Lock()  # Lock für Thread-Sicherheit
+        self.restart_streams_flag = False  # Flag für Stream-Neustart
+        
         # PyAudio Initialisierung
         self.p = pyaudio.PyAudio()
         
@@ -206,6 +212,7 @@ class SimplexRepeater:
         self.input_device_combo = ttk.Combobox(main_frame, textvariable=self.input_device_var,
                                               state='readonly', width=30)
         self.input_device_combo.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.input_device_combo.bind('<<ComboboxSelected>>', self.on_input_device_changed)
         
         # Audio-Ausgabe Auswahl
         row += 1 
@@ -215,6 +222,7 @@ class SimplexRepeater:
         self.output_device_combo = ttk.Combobox(main_frame, textvariable=self.output_device_var,
                                                state='readonly', width=30)
         self.output_device_combo.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.output_device_combo.bind('<<ComboboxSelected>>', self.on_output_device_changed)
         
         # Status-Anzeige
         row += 1 
@@ -370,6 +378,70 @@ class SimplexRepeater:
         """Gibt die ausgewählte Ausgabe-Geräte-ID zurück"""
         device_name = self.output_device_var.get()
         return self.output_devices.get(device_name, None)
+    
+    def on_input_device_changed(self, event=None):
+        """Wird aufgerufen wenn Eingangsquelle geändert wird"""
+        if self.running:
+            self.restart_streams_flag = True
+    
+    def on_output_device_changed(self, event=None):
+        """Wird aufgerufen wenn Ausgangsquelle geändert wird"""
+        if self.running:
+            self.restart_streams_flag = True
+    
+    def restart_audio_streams(self):
+        """Trennt alte Streams und öffnet neue mit aktuellen Geräten"""
+        with self.streams_lock:
+            # Alte Streams schließen
+            if self.stream_in:
+                try:
+                    self.stream_in.stop_stream()
+                    self.stream_in.close()
+                except Exception as e:
+                    print(f"Fehler beim Schließen des Input-Streams: {e}")
+                self.stream_in = None
+            
+            if self.stream_out:
+                try:
+                    self.stream_out.stop_stream()
+                    self.stream_out.close()
+                except Exception as e:
+                    print(f"Fehler beim Schließen des Output-Streams: {e}")
+                self.stream_out = None
+            
+            # Neue Streams öffnen
+            input_device = self.get_selected_input_device()
+            output_device = self.get_selected_output_device()
+            
+            if input_device is not None:
+                try:
+                    self.stream_in = self.p.open(
+                        format=self.FORMAT,
+                        channels=self.CHANNELS,
+                        rate=self.RATE,
+                        input=True,
+                        input_device_index=input_device,
+                        frames_per_buffer=self.CHUNK
+                    )
+                except Exception as e:
+                    print(f"Fehler beim Öffnen des Input-Streams: {e}")
+                    self.root.after(0, messagebox.showerror, "Fehler", 
+                                  f"Eingangsquelle konnte nicht geöffnet werden: {str(e)}")
+            
+            if output_device is not None:
+                try:
+                    self.stream_out = self.p.open(
+                        format=self.FORMAT,
+                        channels=self.CHANNELS,
+                        rate=self.RATE,
+                        output=True,
+                        output_device_index=output_device,
+                        frames_per_buffer=self.CHUNK
+                    )
+                except Exception as e:
+                    print(f"Fehler beim Öffnen des Output-Streams: {e}")
+                    self.root.after(0, messagebox.showerror, "Fehler", 
+                                  f"Ausgangsquelle konnte nicht geöffnet werden: {str(e)}")
         
     def start_repeater(self):
         """Startet den Repeater"""
@@ -462,24 +534,46 @@ class SimplexRepeater:
         
     def audio_loop(self):
         """Haupt-Audio-Schleife"""
-        input_device = self.get_selected_input_device()
-        output_device = self.get_selected_output_device()
-        
         try:
-            # Input-Stream öffnen
-            stream_in = self.p.open(
-                format=self.FORMAT,
-                channels=self.CHANNELS,
-                rate=self.RATE,
-                input=True,
-                input_device_index=input_device,
-                frames_per_buffer=self.CHUNK
-            )
+            # Streams initial öffnen
+            self.restart_audio_streams()
+            
+            if self.stream_in is None or self.stream_out is None:
+                self.root.after(0, messagebox.showerror, "Fehler", 
+                              "Audio-Streams konnten nicht geöffnet werden!")
+                self.root.after(0, self.stop_repeater)
+                return
+            
+            # Stille-Puffer für Output (wenn nicht abgespielt wird)
+            silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
             
             while self.running:
+                # Prüfe ob Streams neu gestartet werden müssen
+                if self.restart_streams_flag:
+                    self.restart_streams_flag = False
+                    self.root.after(0, self.update_status, "Quellen werden gewechselt...", 'orange')
+                    
+                    # Warte bis Aufnahme/Wiedergabe beendet ist
+                    while (self.is_recording or self.is_playing) and self.running:
+                        time.sleep(0.1)
+                    
+                    # Streams neu starten
+                    self.restart_audio_streams()
+                    
+                    if self.stream_in is None or self.stream_out is None:
+                        self.root.after(0, messagebox.showerror, "Fehler", 
+                                      "Audio-Streams konnten nicht gewechselt werden!")
+                        break
+                    
+                    self.root.after(0, self.update_status, "Bereit - Warte auf Signal...", 'green')
+                
                 # Audio-Daten lesen
                 try:
-                    data = stream_in.read(self.CHUNK, exception_on_overflow=False)
+                    with self.streams_lock:
+                        if self.stream_in is None:
+                            break
+                        data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                    
                     audio_data = np.frombuffer(data, dtype=np.int16)
                     
                     # Pegel berechnen
@@ -488,6 +582,11 @@ class SimplexRepeater:
                     
                     # Wenn nicht gerade abgespielt wird und nicht aufgenommen wird
                     if not self.is_playing and not self.is_recording:
+                        # Stille ausgeben, um Stream aktiv zu halten
+                        with self.streams_lock:
+                            if self.stream_out:
+                                self.stream_out.write(silence)
+                        
                         # Prüfe ob wir noch in Totzeit sind
                         current_time = time.time()
                         if current_time < self.dead_time_end:
@@ -497,21 +596,29 @@ class SimplexRepeater:
                                           f"Totzeit: {remaining:.1f}s verbleibend", 'orange')
                         elif self.current_damped_level > self.start_threshold_var.get():
                             # Verwende gedämpften Pegel für Trigger
-                            self.start_recording(stream_in, output_device)
+                            self.start_recording()
                             
                 except Exception as e:
                     print(f"Fehler beim Lesen: {e}")
                     time.sleep(0.01)
-                    
-            stream_in.stop_stream()
-            stream_in.close()
+            
+            # Streams schließen
+            with self.streams_lock:
+                if self.stream_in:
+                    self.stream_in.stop_stream()
+                    self.stream_in.close()
+                    self.stream_in = None
+                if self.stream_out:
+                    self.stream_out.stop_stream()
+                    self.stream_out.close()
+                    self.stream_out = None
             
         except Exception as e:
             self.root.after(0, messagebox.showerror, "Fehler", 
                           f"Audio-Fehler: {str(e)}")
             self.root.after(0, self.stop_repeater)
             
-    def start_recording(self, stream_in, output_device):
+    def start_recording(self):
         """Startet die Aufnahme"""
         self.is_recording = True
         self.audio_buffer.clear()
@@ -531,7 +638,11 @@ class SimplexRepeater:
             if not self.running:
                 break
             try:
-                data = stream_in.read(self.CHUNK, exception_on_overflow=False)
+                with self.streams_lock:
+                    if self.stream_in is None:
+                        break
+                    data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                
                 self.audio_buffer.append(data)
                 chunk_count += 1
                 
@@ -562,42 +673,34 @@ class SimplexRepeater:
         
         # Sofort abspielen
         if self.running and len(self.audio_buffer) > 0:
-            self.play_audio(output_device)
+            self.play_audio()
             
         self.root.after(0, self.update_progress, 0)
         self.root.after(0, self.update_status, "Bereit - Warte auf Signal...", 'green')
         
-    def play_audio(self, output_device):
-        """Spielt aufgenommenes Audio ab"""
+    def play_audio(self):
+        """Spielt aufgenommenes Audio ab - verwendet den bereits geöffneten Stream"""
         self.is_playing = True
         self.root.after(0, self.update_status, "Wiedergabe läuft...", 'blue')
         
         try:
-            # Output-Stream öffnen
-            stream_out = self.p.open(
-                format=self.FORMAT,
-                channels=self.CHANNELS,
-                rate=self.RATE,
-                output=True,
-                output_device_index=output_device,
-                frames_per_buffer=self.CHUNK
-            )
-            
-            # Audio abspielen
+            # Audio abspielen über den bereits geöffneten Stream
             total_chunks = len(self.audio_buffer)
             played_chunks = 0
             
             while self.audio_buffer and self.running:
                 data = self.audio_buffer.popleft()
-                stream_out.write(data)
+                
+                with self.streams_lock:
+                    if self.stream_out is None:
+                        break
+                    self.stream_out.write(data)
+                
                 played_chunks += 1
                 
                 # Fortschritt aktualisieren (rückwärts von 100 zu 0)
                 progress_percent = 100 - ((played_chunks / total_chunks) * 100)
                 self.root.after(0, self.update_progress, progress_percent)
-                
-            stream_out.stop_stream()
-            stream_out.close()
             
         except Exception as e:
             print(f"Fehler bei Wiedergabe: {e}")
