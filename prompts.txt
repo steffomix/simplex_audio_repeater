@@ -49,3 +49,9 @@ Dadurch dass die Eingangs- und Ausgangsquellen nun permanent sind, muss die akte
 
 Schritt 13:
 Technisch bedingt ist es erforderlich, dass die Aufnahme lauter abgespielt wird als sie aufgenommen wurde, um eine gute Wiedergabequalität zu gewährleisten. Bitte füge einen einstellbaren Verstärkungsfaktor hinzu, der die Lautstärke der Wiedergabe im Verhältnis zur Aufnahmepegel anpasst. Der Verstärkungsfaktor soll in Dezibel (dB) angegeben werden können, mit einem Bereich von -20 dB bis +20 dB und einem Standardwert von 0 dB.
+
+Schritt 14 (Frage):
+Ich habe ein President George II und bei der Verwendung des Simplex Repeaters kommt es mit zunehmender Lautstärke des Funkgeräts beim Funkgerät zu einer Art Aufnahmen- abspielen Schleife. Die Schleife kann nur durch herunter drehen der Lautstärke des Funkgeräts oder ziehen des Steckers vom externen Lautsprecherausgang, der am Mikrofoneingang des Simplex Repeaters angeschlossen ist, unterbrochen werden. Hast du eine Idee woran das liegen könnte und wie ich das Problem beheben kann?
+
+Schritt 15: 
+Ich glaube den Fehler gefunden zu haben. Der Simplex Repeater ist nun so programmiert, dass Aufnahme und Wiedergabe permanent aktiv sind, das war keine gute Idee. Offenbar scheint es von Recher- oder Funkgerätseite Knackgeräusche beim Umschalten zu geben, denn die Schleife beginnt wenn die Lautstärke des Funkgeräts zu hoch ist und nach dem Abspielen der Aufnahme. Bitte ändere das Programm so, dass die Audio Eingangs- und Ausgangsquellen nur während der Aufnahme bzw. Wiedergabe verbunden sind und bei der Totzeit nichts verbunden ist. 

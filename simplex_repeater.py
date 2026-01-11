@@ -551,85 +551,101 @@ class SimplexRepeater:
         self.level_canvas.tag_raise('stop_threshold')
         
     def audio_loop(self):
-        """Haupt-Audio-Schleife"""
+        """Haupt-Audio-Schleife - Monitoring ohne permanente Streams"""
+        input_device = self.get_selected_input_device()
+        
+        if input_device is None:
+            self.root.after(0, messagebox.showerror, "Fehler", 
+                          "Kein Eingabegerät ausgewählt!")
+            self.root.after(0, self.stop_repeater)
+            return
+        
         try:
-            # Streams initial öffnen
-            self.restart_audio_streams()
-            
-            if self.stream_in is None or self.stream_out is None:
-                self.root.after(0, messagebox.showerror, "Fehler", 
-                              "Audio-Streams konnten nicht geöffnet werden!")
-                self.root.after(0, self.stop_repeater)
-                return
-            
-            # Stille-Puffer für Output (wenn nicht abgespielt wird)
-            silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
+            # Temporärer Monitoring-Stream (nur für Pegelmessung)
+            monitoring_stream = None
             
             while self.running:
-                # Prüfe ob Streams neu gestartet werden müssen
+                # Prüfe ob Streams neu gestartet werden müssen (Geräteänderung)
                 if self.restart_streams_flag:
                     self.restart_streams_flag = False
-                    self.root.after(0, self.update_status, "Quellen werden gewechselt...", 'orange')
-                    
-                    # Warte bis Aufnahme/Wiedergabe beendet ist
-                    while (self.is_recording or self.is_playing) and self.running:
-                        time.sleep(0.1)
-                    
-                    # Streams neu starten
-                    self.restart_audio_streams()
-                    
-                    if self.stream_in is None or self.stream_out is None:
-                        self.root.after(0, messagebox.showerror, "Fehler", 
-                                      "Audio-Streams konnten nicht gewechselt werden!")
-                        break
-                    
+                    if monitoring_stream:
+                        try:
+                            monitoring_stream.stop_stream()
+                            monitoring_stream.close()
+                        except:
+                            pass
+                        monitoring_stream = None
+                    input_device = self.get_selected_input_device()
                     self.root.after(0, self.update_status, "Bereit - Warte auf Signal...", 'green')
                 
-                # Audio-Daten lesen
-                try:
-                    with self.streams_lock:
-                        if self.stream_in is None:
-                            break
-                        data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                # Prüfe ob wir in Totzeit sind
+                current_time = time.time()
+                if current_time < self.dead_time_end:
+                    # In Totzeit - kein Monitoring-Stream
+                    if monitoring_stream:
+                        try:
+                            monitoring_stream.stop_stream()
+                            monitoring_stream.close()
+                        except:
+                            pass
+                        monitoring_stream = None
                     
-                    audio_data = np.frombuffer(data, dtype=np.int16)
-                    
-                    # Pegel berechnen
-                    level = np.abs(audio_data).mean()
-                    self.root.after(0, self.update_level, level)
-                    
-                    # Wenn nicht gerade abgespielt wird und nicht aufgenommen wird
-                    if not self.is_playing and not self.is_recording:
-                        # Stille ausgeben, um Stream aktiv zu halten
-                        with self.streams_lock:
-                            if self.stream_out:
-                                self.stream_out.write(silence)
+                    remaining = self.dead_time_end - current_time
+                    self.root.after(0, self.update_status, 
+                                  f"Totzeit: {remaining:.1f}s verbleibend", 'orange')
+                    time.sleep(0.1)
+                    continue
+                
+                # Außerhalb Totzeit - Monitoring-Stream öffnen falls nötig
+                if not monitoring_stream and not self.is_recording and not self.is_playing:
+                    try:
+                        monitoring_stream = self.p.open(
+                            format=self.FORMAT,
+                            channels=self.CHANNELS,
+                            rate=self.RATE,
+                            input=True,
+                            input_device_index=input_device,
+                            frames_per_buffer=self.CHUNK
+                        )
+                    except Exception as e:
+                        print(f"Fehler beim Öffnen des Monitoring-Streams: {e}")
+                        time.sleep(0.5)
+                        continue
+                
+                # Pegel überwachen
+                if monitoring_stream and not self.is_recording and not self.is_playing:
+                    try:
+                        data = monitoring_stream.read(self.CHUNK, exception_on_overflow=False)
+                        audio_data = np.frombuffer(data, dtype=np.int16)
+                        level = np.abs(audio_data).mean()
+                        self.root.after(0, self.update_level, level)
                         
-                        # Prüfe ob wir noch in Totzeit sind
-                        current_time = time.time()
-                        if current_time < self.dead_time_end:
-                            # Noch in Totzeit
-                            remaining = self.dead_time_end - current_time
-                            self.root.after(0, self.update_status, 
-                                          f"Totzeit: {remaining:.1f}s verbleibend", 'orange')
-                        elif self.current_damped_level > self.start_threshold_var.get():
-                            # Verwende gedämpften Pegel für Trigger
+                        # Prüfe ob Aufnahme getriggert werden soll
+                        if self.current_damped_level > self.start_threshold_var.get():
+                            # Monitoring-Stream schließen vor Aufnahme
+                            try:
+                                monitoring_stream.stop_stream()
+                                monitoring_stream.close()
+                            except:
+                                pass
+                            monitoring_stream = None
+                            
+                            # Starte Aufnahme
                             self.start_recording()
                             
-                except Exception as e:
-                    print(f"Fehler beim Lesen: {e}")
+                    except Exception as e:
+                        print(f"Fehler beim Monitoring: {e}")
+                        time.sleep(0.01)
+                else:
                     time.sleep(0.01)
             
-            # Streams schließen
-            with self.streams_lock:
-                if self.stream_in:
-                    self.stream_in.stop_stream()
-                    self.stream_in.close()
-                    self.stream_in = None
-                if self.stream_out:
-                    self.stream_out.stop_stream()
-                    self.stream_out.close()
-                    self.stream_out = None
+            # Aufräumen
+            if monitoring_stream:
+                try:
+                    monitoring_stream.stop_stream()
+                    monitoring_stream.close()
+                except:
+                    pass
             
         except Exception as e:
             self.root.after(0, messagebox.showerror, "Fehler", 
@@ -637,57 +653,78 @@ class SimplexRepeater:
             self.root.after(0, self.stop_repeater)
             
     def start_recording(self):
-        """Startet die Aufnahme"""
+        """Startet die Aufnahme - öffnet eigenen Stream"""
         self.is_recording = True
         self.audio_buffer.clear()
         self.root.after(0, self.update_status, "Aufnahme läuft...", 'orange')
         
-        record_time = self.record_time_var.get()
-        chunks_to_record = int(self.RATE / self.CHUNK * record_time)
+        input_device = self.get_selected_input_device()
+        if input_device is None:
+            self.is_recording = False
+            return
         
-        stop_threshold = self.stop_threshold_var.get()
-        stop_time = self.stop_time_var.get()
-        chunks_for_stop = int(self.RATE / self.CHUNK * stop_time)
-        low_level_counter = 0
-        
-        # Aufnahme
-        chunk_count = 0
-        for _ in range(chunks_to_record):
-            if not self.running:
-                break
-            try:
-                with self.streams_lock:
-                    if self.stream_in is None:
-                        break
-                    data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
-                
-                self.audio_buffer.append(data)
-                chunk_count += 1
-                
-                # Fortschritt aktualisieren
-                progress_percent = (chunk_count / chunks_to_record) * 100
-                self.root.after(0, self.update_progress, progress_percent)
-                
-                # Pegel aktualisieren
-                audio_data = np.frombuffer(data, dtype=np.int16)
-                level = np.abs(audio_data).mean()
-                self.root.after(0, self.update_level, level)
-                
-                # Prüfe ob gedämpfter Pegel unter Abbruch-Pegel
-                # Verwende gedämpften Pegel für konsistente Triggerung
-                if self.current_damped_level < stop_threshold:
-                    low_level_counter += 1
-                    # Wenn Pegel lange genug unter Schwelle, breche ab
-                    if low_level_counter >= chunks_for_stop:
-                        break
-                else:
-                    low_level_counter = 0
+        record_stream = None
+        try:
+            # Stream für Aufnahme öffnen
+            record_stream = self.p.open(
+                format=self.FORMAT,
+                channels=self.CHANNELS,
+                rate=self.RATE,
+                input=True,
+                input_device_index=input_device,
+                frames_per_buffer=self.CHUNK
+            )
+            
+            record_time = self.record_time_var.get()
+            chunks_to_record = int(self.RATE / self.CHUNK * record_time)
+            
+            stop_threshold = self.stop_threshold_var.get()
+            stop_time = self.stop_time_var.get()
+            chunks_for_stop = int(self.RATE / self.CHUNK * stop_time)
+            low_level_counter = 0
+            
+            # Aufnahme
+            chunk_count = 0
+            for _ in range(chunks_to_record):
+                if not self.running:
+                    break
+                try:
+                    data = record_stream.read(self.CHUNK, exception_on_overflow=False)
                     
-            except Exception as e:
-                print(f"Fehler bei Aufnahme: {e}")
-                break
-                
-        self.is_recording = False
+                    self.audio_buffer.append(data)
+                    chunk_count += 1
+                    
+                    # Fortschritt aktualisieren
+                    progress_percent = (chunk_count / chunks_to_record) * 100
+                    self.root.after(0, self.update_progress, progress_percent)
+                    
+                    # Pegel aktualisieren
+                    audio_data = np.frombuffer(data, dtype=np.int16)
+                    level = np.abs(audio_data).mean()
+                    self.root.after(0, self.update_level, level)
+                    
+                    # Prüfe ob gedämpfter Pegel unter Abbruch-Pegel
+                    if self.current_damped_level < stop_threshold:
+                        low_level_counter += 1
+                        if low_level_counter >= chunks_for_stop:
+                            break
+                    else:
+                        low_level_counter = 0
+                        
+                except Exception as e:
+                    print(f"Fehler bei Aufnahme: {e}")
+                    break
+            
+        finally:
+            # Stream schließen
+            if record_stream:
+                try:
+                    record_stream.stop_stream()
+                    record_stream.close()
+                except:
+                    pass
+            
+            self.is_recording = False
         
         # Sofort abspielen
         if self.running and len(self.audio_buffer) > 0:
@@ -720,12 +757,29 @@ class SimplexRepeater:
         return audio_data.astype(np.int16).tobytes()
     
     def play_audio(self):
-        """Spielt aufgenommenes Audio ab - verwendet den bereits geöffneten Stream"""
+        """Spielt aufgenommenes Audio ab - öffnet eigenen Stream"""
         self.is_playing = True
         self.root.after(0, self.update_status, "Wiedergabe läuft...", 'blue')
         
+        output_device = self.get_selected_output_device()
+        if output_device is None:
+            self.is_playing = False
+            self.audio_buffer.clear()
+            return
+        
+        playback_stream = None
         try:
-            # Audio abspielen über den bereits geöffneten Stream
+            # Stream für Wiedergabe öffnen
+            playback_stream = self.p.open(
+                format=self.FORMAT,
+                channels=self.CHANNELS,
+                rate=self.RATE,
+                output=True,
+                output_device_index=output_device,
+                frames_per_buffer=self.CHUNK
+            )
+            
+            # Audio abspielen
             total_chunks = len(self.audio_buffer)
             played_chunks = 0
             
@@ -735,11 +789,7 @@ class SimplexRepeater:
                 # Verstärkung anwenden
                 data = self.apply_gain(data)
                 
-                with self.streams_lock:
-                    if self.stream_out is None:
-                        break
-                    self.stream_out.write(data)
-                
+                playback_stream.write(data)
                 played_chunks += 1
                 
                 # Fortschritt aktualisieren (rückwärts von 100 zu 0)
@@ -748,9 +798,18 @@ class SimplexRepeater:
             
         except Exception as e:
             print(f"Fehler bei Wiedergabe: {e}")
+        
+        finally:
+            # Stream schließen
+            if playback_stream:
+                try:
+                    playback_stream.stop_stream()
+                    playback_stream.close()
+                except:
+                    pass
             
-        self.is_playing = False
-        self.audio_buffer.clear()
+            self.is_playing = False
+            self.audio_buffer.clear()
         
         # Totzeit setzen
         dead_time = self.dead_time_var.get()
