@@ -224,6 +224,20 @@ class SimplexRepeater:
         self.output_device_combo.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
         self.output_device_combo.bind('<<ComboboxSelected>>', self.on_output_device_changed)
         
+        # Verstärkungsfaktor-Einstellung
+        row += 1 
+        ttk.Label(main_frame, text="Wiedergabeverstärkung:").grid(
+            row=row, column=0, sticky=tk.W, pady=5)
+        gain_frame = ttk.Frame(main_frame)
+        gain_frame.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.gain_var = tk.DoubleVar(value=0.0)
+        self.gain_scale = ttk.Scale(gain_frame, from_=-20.0, to=20.0,
+                                    variable=self.gain_var, orient=tk.HORIZONTAL)
+        self.gain_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.gain_label = ttk.Label(gain_frame, text="0.0 dB")
+        self.gain_label.pack(side=tk.LEFT, padx=5)
+        self.gain_var.trace('w', self.update_gain_label)
+        
         # Status-Anzeige
         row += 1 
         ttk.Label(main_frame, text="Status:").grid(
@@ -291,6 +305,10 @@ class SimplexRepeater:
             self.fall_time_label.config(text="Aus")
         else:
             self.fall_time_label.config(text=f"{value:.0f} ms")
+    
+    def update_gain_label(self, *args):
+        value = self.gain_var.get()
+        self.gain_label.config(text=f"{value:+.1f} dB")
         
     def on_threshold_change(self, value):
         """Wird aufgerufen wenn sich der Eingangspegel ändert"""
@@ -678,6 +696,29 @@ class SimplexRepeater:
         self.root.after(0, self.update_progress, 0)
         self.root.after(0, self.update_status, "Bereit - Warte auf Signal...", 'green')
         
+    def apply_gain(self, data):
+        """Wendet Verstärkung auf Audio-Daten an"""
+        gain_db = self.gain_var.get()
+        
+        # Wenn Verstärkung 0 dB ist, gib Originaldaten zurück
+        if gain_db == 0.0:
+            return data
+        
+        # Konvertiere dB zu linearem Faktor: gain_linear = 10^(gain_dB / 20)
+        gain_linear = 10.0 ** (gain_db / 20.0)
+        
+        # Konvertiere Bytes zu numpy Array
+        audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+        
+        # Wende Verstärkung an
+        audio_data *= gain_linear
+        
+        # Clipping vermeiden (begrenze auf int16 Bereich)
+        audio_data = np.clip(audio_data, -32768, 32767)
+        
+        # Zurück zu int16 konvertieren
+        return audio_data.astype(np.int16).tobytes()
+    
     def play_audio(self):
         """Spielt aufgenommenes Audio ab - verwendet den bereits geöffneten Stream"""
         self.is_playing = True
@@ -690,6 +731,9 @@ class SimplexRepeater:
             
             while self.audio_buffer and self.running:
                 data = self.audio_buffer.popleft()
+                
+                # Verstärkung anwenden
+                data = self.apply_gain(data)
                 
                 with self.streams_lock:
                     if self.stream_out is None:
@@ -731,6 +775,7 @@ class SimplexRepeater:
                 self.record_time_var.set(config.get('record_time', 30.0))
                 self.stop_time_var.set(config.get('stop_time', 0.5))
                 self.dead_time_var.set(config.get('dead_time', 2.0))
+                self.gain_var.set(config.get('gain', 0.0))
                 
                 # Audiogeräte aus Konfiguration setzen (falls vorhanden)
                 input_device = config.get('input_device', '')
@@ -769,6 +814,7 @@ class SimplexRepeater:
                 'record_time': self.record_time_var.get(),
                 'stop_time': self.stop_time_var.get(),
                 'dead_time': self.dead_time_var.get(),
+                'gain': self.gain_var.get(),
                 'input_device': self.input_device_var.get(),
                 'output_device': self.output_device_var.get()
             }

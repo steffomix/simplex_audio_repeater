@@ -46,3 +46,6 @@ Wenn der Startpegel nach dem Start des Programms noch nicht bewegt wurde, lässt
 
 Schritt 12:
 Dadurch dass die Eingangs- und Ausgangsquellen nun permanent sind, muss die aktelle Quelle bei einer Änderung automatisch getrennt und die neue Quelle verbunden werden. Bitte füge diese Funktionalität hinzu.
+
+Schritt 13:
+Technisch bedingt ist es erforderlich, dass die Aufnahme lauter abgespielt wird als sie aufgenommen wurde, um eine gute Wiedergabequalität zu gewährleisten. Bitte füge einen einstellbaren Verstärkungsfaktor hinzu, der die Lautstärke der Wiedergabe im Verhältnis zur Aufnahmepegel anpasst. Der Verstärkungsfaktor soll in Dezibel (dB) angegeben werden können, mit einem Bereich von -20 dB bis +20 dB und einem Standardwert von 0 dB.
