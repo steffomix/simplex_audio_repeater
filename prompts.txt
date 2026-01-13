@@ -79,3 +79,19 @@ Das Programm und der Equalizer funktioniert bis auf die Douplex Aufnahme oder Wi
 Eine 8 Sekunden lange Aufnahme der stotternden Wiedergabe findest du in der Datei "test-record-440hz.flac".
 
 Zusätzlich soll eine einstellbare Verzögerungszeit von bis zu 1 Sekunde für die Wiedergabe hinzugefügt werden, die in Millisekunden angegeben wird, um Rückkopplungen zu unterdrücken. Start- und Stoppegel sollen in der Duplex Funktion ignoriert werden, da die Aufnahme permanent läuft. 
+
+Schritt 18:
+Die Duplex Funktion funktioniert jetzt einwandfrei! Es gibt jedoch noch zwei Probleme. Erstens soll die Verzögerungszeit die Wiedergabe zwar verzögern, aber so dass sie insgesamt asynchron zur Aufnahme bleibt um Rückkopplungen zu vermeiden. Derzeit scheint die Verzögerung die Wiedergabe nur beim Start zu verzögern, aber danach sind Aufnahme und Wiedergabe wieder synchron. Bitte behebe das.
+
+Zweitens gibt es Performance Probleme durch die hohe Abtastrate von derzeit  
+self.RATE = 44100 
+wie in Zeile 50 des Codes festgelegt.
+Mit einer Rate von 22000 läuft es ohne Equalizer flüssig, aber mit Equalizer muss ich auf 8000 runter gehen um flüssige Wiedergabe zu haben. Mehrere Anpassungen müssen gemacht werden um mit diesem Problem fertig zu werden.
+
+Ein Pulldown Menü soll hinzugefügt werden, mit dem die Abtastrate ausgewählt werden kann. Mögliche Werte sind 8000, 16000, 22000, 32000 und 44100 Hz. Standardmäßig soll die Abtastrate auf 22000 Hz gesetzt sein.
+Der Equalizer soll optional deaktiviert werden können, um die Performance zu verbessern. Dazu soll ein Kontrollkästchen in der Ausgangsspalte hinzugefügt werden mit der Bezeichnung "Equalizer aktivieren", das standardmäßig aktiviert ist.
+
+Es einen Hinweis in der GUI geben, dass höhere Abtastraten die Performance beeinträchtigen können, insbesondere wenn der Equalizer aktiviert ist, was eine flüssige Wiedergabe erschwert.
+
+Untersuche ob der Code optimiert werden kann, um die Performance bei höheren Abtastraten zu verbessern, insbesondere wenn der Equalizer aktiviert ist.
+

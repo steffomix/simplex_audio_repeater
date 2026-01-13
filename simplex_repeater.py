@@ -27,7 +27,10 @@ class SimplexRepeater:
         self.CHUNK = 1024
         self.FORMAT = pyaudio.paInt16
         self.CHANNELS = 1
-        self.RATE = 8000 #44100
+        self.RATE = 22000  # Standard: 22000 Hz (gute Balance zwischen Qualität und Performance)
+        
+        # Equalizer-Aktivierung
+        self.equalizer_enabled = True
         
         # Konfigurationsdatei
         self.config_file = os.path.join(os.path.expanduser("~"), ".simplex_repeater_config.json")
@@ -76,6 +79,10 @@ class SimplexRepeater:
         
     def apply_equalizer(self, audio_data):
         """Wendet den Equalizer auf Audio-Daten an"""
+        # Früh-Ausstieg wenn Equalizer deaktiviert ist
+        if not self.equalizer_enabled:
+            return audio_data
+        
         # Konvertiere bytes zu numpy array wenn nötig
         if isinstance(audio_data, bytes):
             audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
@@ -364,6 +371,14 @@ class SimplexRepeater:
         ttk.Label(right_frame, text="Equalizer:", font=('Arial', 11, 'bold')).grid(
             row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
         
+        # Equalizer Aktivieren/Deaktivieren
+        row_right += 1
+        self.equalizer_enabled_var = tk.BooleanVar(value=True)
+        self.equalizer_checkbox = ttk.Checkbutton(right_frame, text="Equalizer aktivieren",
+                                                   variable=self.equalizer_enabled_var,
+                                                   command=self.on_equalizer_toggle)
+        self.equalizer_checkbox.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=5)
+        
         # Equalizer-Bänder (5 Bänder)
         self.eq_scales = {}
         self.eq_labels = {}
@@ -412,6 +427,30 @@ class SimplexRepeater:
                                                state='readonly', width=25)
         self.output_device_combo.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
         self.output_device_combo.bind('<<ComboboxSelected>>', self.on_output_device_changed)
+        
+        # Abtastrate-Auswahl
+        row_right += 1
+        ttk.Label(right_frame, text="Abtastrate:").grid(
+            row=row_right, column=0, sticky=tk.W, pady=5)
+        self.sample_rate_var = tk.IntVar(value=22000)
+        sample_rate_frame = ttk.Frame(right_frame)
+        sample_rate_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.sample_rate_combo = ttk.Combobox(sample_rate_frame, 
+                                              textvariable=self.sample_rate_var,
+                                              values=[8000, 16000, 22000, 32000, 44100],
+                                              state='readonly', width=10)
+        self.sample_rate_combo.pack(side=tk.LEFT)
+        self.sample_rate_combo.bind('<<ComboboxSelected>>', self.on_sample_rate_changed)
+        ttk.Label(sample_rate_frame, text="Hz").pack(side=tk.LEFT, padx=5)
+        
+        # Performance-Hinweis
+        row_right += 1
+        perf_hint = ttk.Label(right_frame, 
+                             text="⚠ Höhere Abtastraten können die Performance\nbeeinträchtigen, besonders mit Equalizer.",
+                             font=('Arial', 8, 'italic'),
+                             foreground='#666666',
+                             justify=tk.LEFT)
+        perf_hint.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
         
         # Verstärkungsfaktor-Einstellung
         row_right += 1
@@ -500,6 +539,24 @@ class SimplexRepeater:
     def on_playback_delay_change(self, value):
         """Wird aufgerufen wenn sich die Wiedergabeverzögerung ändert"""
         self.playback_delay_ms = int(float(value))
+        
+    def on_equalizer_toggle(self):
+        """Wird aufgerufen wenn Equalizer aktiviert/deaktiviert wird"""
+        self.equalizer_enabled = self.equalizer_enabled_var.get()
+        # Aktiviere/Deaktiviere alle Equalizer-Slider
+        state = tk.NORMAL if self.equalizer_enabled else tk.DISABLED
+        for band in self.eq_bands:
+            self.eq_scales[band].config(state=state)
+    
+    def on_sample_rate_changed(self, event=None):
+        """Wird aufgerufen wenn Abtastrate geändert wird"""
+        if self.running:
+            messagebox.showwarning("Warnung", 
+                "Bitte stoppen Sie den Repeater, bevor Sie die Abtastrate ändern!")
+            # Setze zurück auf alte Rate
+            self.sample_rate_combo.set(self.RATE)
+        else:
+            self.RATE = self.sample_rate_var.get()
         
     def update_rise_time_label(self, *args):
         value = self.rise_time_var.get()
@@ -815,7 +872,7 @@ class SimplexRepeater:
     
     def audio_loop_duplex(self):
         """Audio-Schleife für Duplex-Modus (gleichzeitig aufnehmen und abspielen)
-        Kontinuierliches Streaming ohne Trigger-Logik
+        Kontinuierliches Streaming ohne Trigger-Logik mit konstanter Verzögerung
         """
         # Ring-Buffer für verzögertes Wiedergabe-Streaming
         # Größe basierend auf Verzögerungszeit berechnen
@@ -825,8 +882,10 @@ class SimplexRepeater:
         # Mindestens 2 Chunks für flüssiges Streaming
         delay_chunks = max(2, delay_chunks)
         
-        self.duplex_playback_buffer = deque(maxlen=delay_chunks + 50)  # Extra Puffer
+        # WICHTIG: Kein maxlen - wir wollen einen konstanten Puffer für permanente Verzögerung
+        self.duplex_playback_buffer = deque()
         self.duplex_recording = True
+        self.duplex_target_buffer_size = delay_chunks
         
         # Stille für initialen Buffer
         silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
@@ -835,7 +894,8 @@ class SimplexRepeater:
         for _ in range(delay_chunks):
             self.duplex_playback_buffer.append(silence)
         
-        self.root.after(0, self.update_status, "Duplex: Aktiv (permanent)", 'green')
+        self.root.after(0, self.update_status, 
+                       f"Duplex: Aktiv ({delay_ms}ms Verzögerung)", 'green')
         
         # Thread für kontinuierliche Aufnahme
         def record_thread():
@@ -861,28 +921,29 @@ class SimplexRepeater:
         
         # Thread für kontinuierliche Wiedergabe
         def playback_thread():
-            """Kontinuierliche Wiedergabe aus Buffer"""
+            """Kontinuierliche Wiedergabe aus Buffer mit konstanter Verzögerung"""
             # Warte bis Buffer gefüllt ist
-            while len(self.duplex_playback_buffer) < delay_chunks and self.running:
+            while len(self.duplex_playback_buffer) < self.duplex_target_buffer_size and self.running:
                 time.sleep(0.001)
             
             while self.running:
                 try:
-                    if len(self.duplex_playback_buffer) > 0:
+                    # Warte bis genug Daten im Buffer sind (hält konstante Verzögerung)
+                    if len(self.duplex_playback_buffer) >= self.duplex_target_buffer_size:
                         # Hole ältesten Chunk aus Buffer
                         data = self.duplex_playback_buffer.popleft()
                         
                         # Verstärkung anwenden
                         data = self.apply_gain(data)
                         
-                        # Equalizer anwenden
+                        # Equalizer anwenden (wird übersprungen wenn deaktiviert)
                         data = self.apply_equalizer(data)
                         
                         with self.streams_lock:
                             if self.stream_out:
                                 self.stream_out.write(data)
                     else:
-                        # Falls Buffer leer (sollte nicht passieren), kurz warten
+                        # Buffer zu klein, warte auf mehr Daten
                         time.sleep(0.001)
                         
                 except Exception as e:
@@ -1123,6 +1184,17 @@ class SimplexRepeater:
                 self.playback_delay_var.set(config.get('playback_delay', 0))
                 self.playback_delay_ms = config.get('playback_delay', 0)
                 
+                # Equalizer-Aktivierung laden
+                equalizer_enabled = config.get('equalizer_enabled', True)
+                self.equalizer_enabled_var.set(equalizer_enabled)
+                self.equalizer_enabled = equalizer_enabled
+                
+                # Abtastrate laden
+                saved_rate = config.get('sample_rate', 22000)
+                if saved_rate in [8000, 16000, 22000, 32000, 44100]:
+                    self.RATE = saved_rate
+                    self.sample_rate_var.set(saved_rate)
+                
                 # Audiogeräte aus Konfiguration setzen (falls vorhanden)
                 input_device = config.get('input_device', '')
                 output_device = config.get('output_device', '')
@@ -1148,6 +1220,11 @@ class SimplexRepeater:
         
         # Zeichne Schwellwert-Linien
         self.update_threshold_lines()
+        
+        # Aktualisiere Equalizer-Slider-Status basierend auf Aktivierung
+        state = tk.NORMAL if self.equalizer_enabled else tk.DISABLED
+        for band in self.eq_bands:
+            self.eq_scales[band].config(state=state)
     
     def save_config(self):
         """Speichert Konfiguration in Datei"""
@@ -1168,6 +1245,8 @@ class SimplexRepeater:
                 'gain': self.gain_var.get(),
                 'playback_delay': self.playback_delay_var.get(),
                 'equalizer': eq_config,
+                'equalizer_enabled': self.equalizer_enabled_var.get(),
+                'sample_rate': self.RATE,
                 'duplex_mode': self.is_duplex_mode,
                 'input_device': self.input_device_var.get(),
                 'output_device': self.output_device_var.get()
