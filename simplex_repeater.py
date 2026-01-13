@@ -5,6 +5,11 @@ Nimmt Audio auf wenn ein Schwellwert überschritten wird und spielt es danach ab
 Unterstützt Simplex (abwechselnd) und Duplex (gleichzeitig) Modi.
 """
 
+import os
+# Setze PipeWire/ALSA Umgebungsvariablen für Stereo-Unterstützung
+os.environ['PIPEWIRE_LATENCY'] = '512/48000'
+os.environ['PIPEWIRE_QUANTUM'] = '1024/48000'
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import pyaudio
@@ -26,7 +31,9 @@ class SimplexRepeater:
         # Audio-Parameter
         self.CHUNK = 1024
         self.FORMAT = pyaudio.paInt16
-        self.CHANNELS = 1
+        self.CHANNELS = 2  # Standard: Stereo (wird beim Stream-Öffnen aktualisiert)
+        self.input_channels = 2  # Tatsächliche Anzahl Eingangskanäle
+        self.output_channels = 2  # Tatsächliche Anzahl Ausgangskanäle
         self.RATE = 44000 
         # Equalizer-Aktivierung
         self.equalizer_enabled = True
@@ -83,6 +90,52 @@ class SimplexRepeater:
         self.eq_filter_states = {}
         self.eq_filter_sos = {}
         self._init_equalizer_filters()
+    
+    def convert_channels(self, data, from_channels, to_channels):
+        """Konvertiert Audio zwischen Mono und Stereo
+        
+        Args:
+            data: Audio-Daten als bytes
+            from_channels: Anzahl Quellkanäle (1 oder 2)
+            to_channels: Anzahl Zielkanäle (1 oder 2)
+        
+        Returns:
+            Konvertierte Audio-Daten als bytes
+        """
+        if from_channels == to_channels:
+            return data
+        
+        audio_np = np.frombuffer(data, dtype=np.int16)
+        
+        if from_channels == 2 and to_channels == 1:
+            # Stereo zu Mono: Durchschnitt beider Kanäle
+            audio_np = audio_np.reshape(-1, 2)
+            mono = audio_np.mean(axis=1).astype(np.int16)
+            return mono.tobytes()
+        elif from_channels == 1 and to_channels == 2:
+            # Mono zu Stereo: Dupliziere Kanal
+            stereo = np.column_stack([audio_np, audio_np]).flatten()
+            return stereo.tobytes()
+        
+        return data
+    
+    def calculate_level(self, data):
+        """Berechnet Pegel aus Audio-Daten (Mono/Stereo-kompatibel)
+        
+        Bei Stereo: Nimmt das Maximum beider Kanäle
+        """
+        audio_np = np.frombuffer(data, dtype=np.int16)
+        
+        if self.input_channels == 2:
+            # Stereo: Reshape zu (samples, 2) und nimm Maximum beider Kanäle
+            audio_np = audio_np.reshape(-1, 2)
+            # Berechne RMS pro Kanal und nimm Maximum
+            level_left = np.abs(audio_np[:, 0]).mean()
+            level_right = np.abs(audio_np[:, 1]).mean()
+            return max(level_left, level_right)
+        else:
+            # Mono: Direkt Mean der Absolutwerte
+            return np.abs(audio_np).mean()
         
     def _init_equalizer_filters(self):
         """Initialisiert die Peaking-EQ-Filter für den Equalizer"""
@@ -169,10 +222,11 @@ class SimplexRepeater:
             self.eq_filter_sos[freq] = np.array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]])
     
     def apply_equalizer(self, audio_data):
-        """Wendet den Equalizer auf Audio-Daten an
+        """Wendet den Equalizer auf Audio-Daten an (Stereo-kompatibel)
         
         Verwendet scipy.signal.sosfilt für stabile, kontinuierliche Filterung
         ohne numerische Instabilitäten oder Artefakte.
+        Verarbeitet bei Stereo jeden Kanal separat.
         """
         # Früh-Ausstieg wenn Equalizer deaktiviert ist
         if not self.equalizer_enabled:
@@ -193,49 +247,114 @@ class SimplexRepeater:
             else:
                 return np.clip(audio_np, -32768, 32767).astype(np.int16).tobytes()
         
-        # Starte mit Originalsignal
-        filtered = audio_np.copy()
+        # Stereo: Reshape zu (samples, channels) falls mehr als 1024 Samples
+        # Bei Stereo: Array ist [L, R, L, R, ...] -> reshape zu [[L, R], [L, R], ...]
+        is_stereo = self.input_channels == 2 and len(audio_np) > self.CHUNK
+        if is_stereo:
+            audio_np = audio_np.reshape(-1, 2)
         
-        # Wende jeden EQ-Band kaskadiert an (in Serie)
-        for band in self.eq_bands:
-            # Überspringe deaktivierte Bänder (über Nyquist)
-            if self.eq_filter_sos[band] is None:
-                continue
+        # Starte mit Originalsignal
+        if is_stereo:
+            # Verarbeite jeden Kanal separat
+            filtered_left = audio_np[:, 0].copy()
+            filtered_right = audio_np[:, 1].copy()
             
-            gain_db = self.eq_gains[band].get()
-            
-            # Überspringe Bänder mit 0 dB Gain (Optimierung)
-            if abs(gain_db) < 0.1:
-                continue
-            
-            # Aktualisiere Filter-Koeffizienten wenn Gain geändert wurde
-            self._update_peaking_filter(band, gain_db)
-            
-            # Überspringe wenn Filter deaktiviert wurde
-            if self.eq_filter_sos[band] is None:
-                continue
-            
-            try:
-                # Wende Filter mit Zustandsspeicherung an (verhindert Knacksen)
-                filtered, self.eq_filter_states[band] = signal.sosfilt(
-                    self.eq_filter_sos[band], 
-                    filtered, 
-                    zi=self.eq_filter_states[band]
-                )
+            # Wende jeden EQ-Band kaskadiert an (in Serie) - pro Kanal
+            for band in self.eq_bands:
+                # Überspringe deaktivierte Bänder (über Nyquist)
+                if self.eq_filter_sos[band] is None:
+                    continue
                 
-                # Prüfe auf ungültige Werte nach Filterung
-                if np.any(np.isnan(filtered)) or np.any(np.isinf(filtered)):
-                    print(f"Warnung: Ungültige Werte nach Filter {band}Hz - überspringe")
-                    # Setze auf Original zurück und reset State
-                    filtered = audio_np.copy()
-                    self.eq_filter_states[band] = np.zeros((1, 2))
-                    break
+                gain_db = self.eq_gains[band].get()
+                
+                # Überspringe Bänder mit 0 dB Gain (Optimierung)
+                if abs(gain_db) < 0.1:
+                    continue
+                
+                # Aktualisiere Filter-Koeffizienten wenn Gain geändert wurde
+                self._update_peaking_filter(band, gain_db)
+                
+                # Überspringe wenn Filter deaktiviert wurde
+                if self.eq_filter_sos[band] is None:
+                    continue
+                
+                try:
+                    # Linker Kanal
+                    filtered_left, zi_left = signal.sosfilt(
+                        self.eq_filter_sos[band], 
+                        filtered_left, 
+                        zi=self.eq_filter_states[band]
+                    )
                     
-            except Exception as e:
-                print(f"Fehler bei Filter {band}Hz: {e}")
-                # Bei Fehler: Setze Zustand zurück mit korrekter Form (1, 2)
-                self.eq_filter_states[band] = np.zeros((1, 2))
-                continue
+                    # Rechter Kanal (mit eigenem Zustand)
+                    # Für Stereo brauchen wir separate States pro Kanal
+                    if not hasattr(self, 'eq_filter_states_right'):
+                        self.eq_filter_states_right = {}
+                        for b in self.eq_bands:
+                            self.eq_filter_states_right[b] = np.zeros((1, 2))
+                    
+                    filtered_right, zi_right = signal.sosfilt(
+                        self.eq_filter_sos[band], 
+                        filtered_right, 
+                        zi=self.eq_filter_states_right[band]
+                    )
+                    
+                    # Speichere States
+                    self.eq_filter_states[band] = zi_left
+                    self.eq_filter_states_right[band] = zi_right
+                    
+                    # Prüfe auf ungültige Werte
+                    if (np.any(np.isnan(filtered_left)) or np.any(np.isinf(filtered_left)) or
+                        np.any(np.isnan(filtered_right)) or np.any(np.isinf(filtered_right))):
+                        print(f"Warnung: Ungültige Werte nach Filter {band}Hz - überspringe")
+                        filtered_left = audio_np[:, 0].copy()
+                        filtered_right = audio_np[:, 1].copy()
+                        self.eq_filter_states[band] = np.zeros((1, 2))
+                        self.eq_filter_states_right[band] = np.zeros((1, 2))
+                        break
+                        
+                except Exception as e:
+                    print(f"Fehler bei Filter {band}Hz: {e}")
+                    self.eq_filter_states[band] = np.zeros((1, 2))
+                    if hasattr(self, 'eq_filter_states_right'):
+                        self.eq_filter_states_right[band] = np.zeros((1, 2))
+                    continue
+            
+            # Kombiniere Kanäle zurück
+            filtered = np.column_stack([filtered_left, filtered_right]).flatten()
+        else:
+            # Mono-Verarbeitung (wie bisher)
+            filtered = audio_np.copy()
+            
+            for band in self.eq_bands:
+                if self.eq_filter_sos[band] is None:
+                    continue
+                
+                gain_db = self.eq_gains[band].get()
+                if abs(gain_db) < 0.1:
+                    continue
+                
+                self._update_peaking_filter(band, gain_db)
+                if self.eq_filter_sos[band] is None:
+                    continue
+                
+                try:
+                    filtered, self.eq_filter_states[band] = signal.sosfilt(
+                        self.eq_filter_sos[band], 
+                        filtered, 
+                        zi=self.eq_filter_states[band]
+                    )
+                    
+                    if np.any(np.isnan(filtered)) or np.any(np.isinf(filtered)):
+                        print(f"Warnung: Ungültige Werte nach Filter {band}Hz - überspringe")
+                        filtered = audio_np.copy()
+                        self.eq_filter_states[band] = np.zeros((1, 2))
+                        break
+                        
+                except Exception as e:
+                    print(f"Fehler bei Filter {band}Hz: {e}")
+                    self.eq_filter_states[band] = np.zeros((1, 2))
+                    continue
         
         # Sanftes Clipping zur Vermeidung von Verzerrungen
         # Prüfe auf NaN/Inf vor Clipping
@@ -737,36 +856,80 @@ class SimplexRepeater:
         
         for i in range(self.p.get_device_count()):
             info = self.p.get_device_info_by_index(i)
-            name = f"{i}: {info['name']}"
             
             if info['maxInputChannels'] > 0:
-                input_devices.append((i, name))
+                # Teste ob das Gerät wirklich Stereo unterstützt
+                channels = min(info['maxInputChannels'], 2)
+                
+                # Versuche zu testen, ob Stereo funktioniert (ohne Stream zu starten)
+                # PipeWire/Pulse-Geräte sollten Stereo unterstützen
+                device_name_lower = info['name'].lower()
+                likely_stereo = any(keyword in device_name_lower for keyword in ['pipewire', 'pulse', 'default'])
+                
+                # Wenn es ein wahrscheinlich Stereo-fähiges Gerät ist und maxChannels >= 2, zeige Stereo an
+                if channels == 2 or (likely_stereo and info['maxInputChannels'] >= 2):
+                    channels = 2
+                    channel_info = "Stereo"
+                else:
+                    channels = 1
+                    channel_info = "Mono"
+                    
+                name = f"{i}: {info['name']} ({channel_info})"
+                input_devices.append((i, name, channels))
+                
             if info['maxOutputChannels'] > 0:
-                output_devices.append((i, name))
+                # Zeige Kanalanzahl für Ausgänge (begrenzt auf 2 für Stereo)
+                channels = min(info['maxOutputChannels'], 2)
+                channel_info = "Stereo" if channels == 2 else "Mono"
+                name = f"{i}: {info['name']} ({channel_info})"
+                output_devices.append((i, name, channels))
+        
+        # Sortiere Geräte: Stereo zuerst, dann Mono
+        input_devices.sort(key=lambda x: (0 if x[2] == 2 else 1, x[1]))
+        output_devices.sort(key=lambda x: (0 if x[2] == 2 else 1, x[1]))
         
         # Comboboxen füllen
-        self.input_device_combo['values'] = [name for _, name in input_devices]
-        self.output_device_combo['values'] = [name for _, name in output_devices]
+        self.input_device_combo['values'] = [name for _, name, _ in input_devices]
+        self.output_device_combo['values'] = [name for _, name, _ in output_devices]
         
-        # Standard-Geräte auswählen
+        # Standard-Geräte auswählen (bevorzuge Stereo-Geräte)
         if input_devices:
-            self.input_device_combo.current(0)
-        if output_devices:
-            self.output_device_combo.current(0)
+            # Suche nach "pipewire", "pulse" oder "default" Stereo-Gerät
+            default_idx = 0
+            for idx, (_, name, channels) in enumerate(input_devices):
+                if channels == 2 and any(keyword in name.lower() for keyword in ['pipewire', 'pulse', 'default']):
+                    default_idx = idx
+                    break
+            self.input_device_combo.current(default_idx)
             
-        # Geräte-IDs speichern
-        self.input_devices = {name: idx for idx, name in input_devices}
-        self.output_devices = {name: idx for idx, name in output_devices}
+        if output_devices:
+            # Suche nach "pipewire", "pulse" oder "default" Stereo-Gerät
+            default_idx = 0
+            for idx, (_, name, channels) in enumerate(output_devices):
+                if channels == 2 and any(keyword in name.lower() for keyword in ['pipewire', 'pulse', 'default']):
+                    default_idx = idx
+                    break
+            self.output_device_combo.current(default_idx)
+            
+        # Geräte-IDs und Kanalanzahl speichern
+        self.input_devices = {name: (idx, channels) for idx, name, channels in input_devices}
+        self.output_devices = {name: (idx, channels) for idx, name, channels in output_devices}
         
     def get_selected_input_device(self):
-        """Gibt die ausgewählte Eingabe-Geräte-ID zurück"""
+        """Gibt die ausgewählte Eingabe-Geräte-ID und Kanalanzahl zurück"""
         device_name = self.input_device_var.get()
-        return self.input_devices.get(device_name, None)
+        device_info = self.input_devices.get(device_name, None)
+        if device_info is None:
+            return None, 1  # Fallback zu Mono
+        return device_info  # (device_id, channels)
         
     def get_selected_output_device(self):
-        """Gibt die ausgewählte Ausgabe-Geräte-ID zurück"""
+        """Gibt die ausgewählte Ausgabe-Geräte-ID und Kanalanzahl zurück"""
         device_name = self.output_device_var.get()
-        return self.output_devices.get(device_name, None)
+        device_info = self.output_devices.get(device_name, None)
+        if device_info is None:
+            return None, 1  # Fallback zu Mono
+        return device_info  # (device_id, channels)
     
     def on_input_device_changed(self, event=None):
         """Wird aufgerufen wenn Eingangsquelle geändert wird"""
@@ -799,34 +962,58 @@ class SimplexRepeater:
                 self.stream_out = None
             
             # Neue Streams öffnen
-            input_device = self.get_selected_input_device()
-            output_device = self.get_selected_output_device()
+            input_device_id, input_channels = self.get_selected_input_device()
+            output_device_id, output_channels = self.get_selected_output_device()
             
-            if input_device is not None:
+            # Speichere die tatsächlichen Kanalanzahlen
+            self.input_channels = input_channels
+            self.output_channels = output_channels
+            
+            if input_device_id is not None:
                 try:
-                    self.stream_in = self.p.open(
-                        format=self.FORMAT,
-                        channels=self.CHANNELS,
-                        rate=self.RATE,
-                        input=True,
-                        input_device_index=input_device,
-                        frames_per_buffer=self.CHUNK
-                    )
+                    # Versuche mit der angegebenen Kanalanzahl zu öffnen
+                    # Bei Fehlschlag versuche mit weniger Kanälen
+                    opened = False
+                    for try_channels in [input_channels, 2, 1]:  # Versuche gewünschte, dann Stereo, dann Mono
+                        if opened:
+                            break
+                        try:
+                            self.stream_in = self.p.open(
+                                format=self.FORMAT,
+                                channels=try_channels,
+                                rate=self.RATE,
+                                input=True,
+                                input_device_index=input_device_id,
+                                frames_per_buffer=self.CHUNK
+                            )
+                            self.input_channels = try_channels
+                            opened = True
+                            print(f"Input-Stream geöffnet: {try_channels} Kanal(Kanäle)")
+                            if try_channels != input_channels:
+                                print(f"HINWEIS: Gerät unterstützt nur {try_channels} Kanal(Kanäle), nicht {input_channels}")
+                            break
+                        except Exception as e:
+                            if try_channels == 1:  # Letzter Versuch fehlgeschlagen
+                                raise e
+                            else:
+                                print(f"Versuch mit {try_channels} Kanälen fehlgeschlagen, versuche weniger...")
+                                continue
                 except Exception as e:
                     print(f"Fehler beim Öffnen des Input-Streams: {e}")
                     self.root.after(0, messagebox.showerror, "Fehler", 
                                   f"Eingangsquelle konnte nicht geöffnet werden: {str(e)}")
             
-            if output_device is not None:
+            if output_device_id is not None:
                 try:
                     self.stream_out = self.p.open(
                         format=self.FORMAT,
-                        channels=self.CHANNELS,
+                        channels=output_channels,  # Verwende tatsächliche Kanalanzahl des Geräts
                         rate=self.RATE,
                         output=True,
-                        output_device_index=output_device,
+                        output_device_index=output_device_id,
                         frames_per_buffer=self.CHUNK
                     )
+                    print(f"Output-Stream geöffnet: {output_channels} Kanäle")
                 except Exception as e:
                     print(f"Fehler beim Öffnen des Output-Streams: {e}")
                     self.root.after(0, messagebox.showerror, "Fehler", 
@@ -834,10 +1021,10 @@ class SimplexRepeater:
         
     def start_repeater(self):
         """Startet den Repeater"""
-        input_device = self.get_selected_input_device()
-        output_device = self.get_selected_output_device()
+        input_device_id, input_channels = self.get_selected_input_device()
+        output_device_id, output_channels = self.get_selected_output_device()
         
-        if input_device is None or output_device is None:
+        if input_device_id is None or output_device_id is None:
             messagebox.showerror("Fehler", "Bitte wählen Sie Ein- und Ausgabegeräte aus!")
             return
             
@@ -977,8 +1164,8 @@ class SimplexRepeater:
         self.duplex_recording = True
         self.duplex_target_buffer_size = self.get_duplex_target_buffer_size()
         
-        # Stille für initialen Buffer
-        silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
+        # Stille für initialen Buffer (nutzt output_channels für Wiedergabe)
+        silence = np.zeros(self.CHUNK * self.output_channels, dtype=np.int16).tobytes()
         
         # Fülle Buffer initial mit Verzögerung
         for _ in range(self.duplex_target_buffer_size):
@@ -1004,10 +1191,13 @@ class SimplexRepeater:
                     # Equalizer anwenden (wird übersprungen wenn deaktiviert)
                     data = self.apply_equalizer(data)
                     
+                    # Konvertiere Kanäle falls nötig (z.B. Stereo-Input zu Mono-Output)
+                    data = self.convert_channels(data, self.input_channels, self.output_channels)
+                    
                     # Sofort zum Wiedergabe-Buffer hinzufügen (Performance-kritisch!)
                     self.duplex_playback_buffer.append(data)
 
-                    level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
+                    level = self.calculate_level(data)
                     self._update_level_gui(level)
                     
                 except Exception as e:
@@ -1094,11 +1284,14 @@ class SimplexRepeater:
                     # Equalizer anwenden (wird übersprungen wenn deaktiviert)
                     data = self.apply_equalizer(data)
 
+                    # Konvertiere Kanäle falls nötig für Wiedergabe
+                    data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
+
                     # Sofort wieder ausgeben (Monitoring)
-                    self.stream_out.write(data)
+                    self.stream_out.write(data_for_output)
                 
                 # Pegel aktualisieren
-                level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
+                level = self.calculate_level(data)
                 self.update_level(level)
                 
                 # Wenn nicht gerade abgespielt wird und nicht aufgenommen wird
@@ -1156,14 +1349,17 @@ class SimplexRepeater:
 
                 self.audio_buffer.append(data)
 
+                # Konvertiere Kanäle falls nötig für Wiedergabe
+                data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
+
                 # Sofort wieder ausgeben (Monitoring)
-                self.stream_out.write(data)
+                self.stream_out.write(data_for_output)
                 
                 
                 progress_percent = (chunk_count / chunks_to_record) * 100
                 self.root.after(0, self.update_progress, progress_percent)
 
-                level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
+                level = self.calculate_level(data)
                 self.update_level(level)
                 
                 # Prüfe ob gedämpfter Pegel unter Abbruch-Pegel
@@ -1190,7 +1386,7 @@ class SimplexRepeater:
         self.root.after(0, self.update_status, "Bereit - Warte auf Signal...", 'green')
         
     def apply_gain(self, data):
-        """Wendet Verstärkung auf Audio-Daten an"""
+        """Wendet Verstärkung auf Audio-Daten an (Stereo-kompatibel)"""
         gain_db = self.gain_var.get()
         
         # Wenn Verstärkung 0 dB ist, gib Originaldaten zurück
@@ -1200,10 +1396,10 @@ class SimplexRepeater:
         # Konvertiere dB zu linearem Faktor: gain_linear = 10^(gain_dB / 20)
         gain_linear = 10.0 ** (gain_db / 20.0)
         
-        # Konvertiere Bytes zu numpy Array
+        # Konvertiere Bytes zu numpy Array (funktioniert für Mono und Stereo)
         audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
         
-        # Wende Verstärkung an
+        # Wende Verstärkung an (auf alle Kanäle)
         audio_data *= gain_linear
         
         # Clipping vermeiden (begrenze auf int16 Bereich)
@@ -1225,11 +1421,14 @@ class SimplexRepeater:
             while self.audio_buffer and self.running:
                 data = self.audio_buffer.popleft()
                 
-                self.stream_out.write(data)
+                # Konvertiere Kanäle falls nötig für Wiedergabe
+                data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
+                
+                self.stream_out.write(data_for_output)
                 
                 played_chunks += 1
 
-                level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
+                level = self.calculate_level(data)
                 self.update_level(level)
                 
                 progress_percent = 100 - ((played_chunks / total_chunks) * 100)
