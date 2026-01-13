@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-Simplex Repeater - Einfacher Audio Repeater mit GUI
+Simplex/Duplex Repeater - Audio Repeater mit GUI und Equalizer
 Nimmt Audio auf wenn ein Schwellwert überschritten wird und spielt es danach ab.
+Unterstützt Simplex (abwechselnd) und Duplex (gleichzeitig) Modi.
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 import pyaudio
 import numpy as np
+import scipy.signal as signal
 import threading
 import time
 import json
@@ -19,7 +21,7 @@ class SimplexRepeater:
     def __init__(self, root):
         self.root = root
         self.root.title("Simplex Repeater")
-        self.root.geometry("500x700")
+        self.root.geometry("900x700")
         
         # Audio-Parameter
         self.CHUNK = 1024
@@ -30,6 +32,9 @@ class SimplexRepeater:
         # Konfigurationsdatei
         self.config_file = os.path.join(os.path.expanduser("~"), ".simplex_repeater_config.json")
         
+        # Modus (simplex oder duplex)
+        self.is_duplex_mode = False
+        
         # Status
         self.running = False
         self.is_recording = False
@@ -38,6 +43,12 @@ class SimplexRepeater:
         self.dead_time_end = 0  # Zeitpunkt wenn Totzeit endet
         self.current_damped_level = 0  # Aktueller gedämpfter Pegel
         self.last_update_time = time.time()  # Zeitpunkt der letzten Pegel-Aktualisierung
+        
+        # Equalizer-Einstellungen (5 Bänder)
+        self.eq_bands = [60, 230, 910, 3600, 14000]  # Mittelpunkte in Hz
+        self.eq_gains = {}  # Dictionary für Gain-Werte (dB)
+        for band in self.eq_bands:
+            self.eq_gains[band] = tk.DoubleVar(value=0.0)
         
         # Streams für dynamisches Umschalten
         self.stream_in = None
@@ -60,32 +71,147 @@ class SimplexRepeater:
         # Thread für Audio-Verarbeitung
         self.audio_thread = None
         
+    def apply_equalizer(self, audio_data):
+        """Wendet den Equalizer auf Audio-Daten an"""
+        # Konvertiere bytes zu numpy array wenn nötig
+        if isinstance(audio_data, bytes):
+            audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
+        else:
+            audio_np = audio_data.astype(np.float32)
+        
+        # Prüfe ob alle Gains auf 0 sind
+        all_zero = all(self.eq_gains[band].get() == 0.0 for band in self.eq_bands)
+        if all_zero:
+            # Keine Filterung nötig
+            if isinstance(audio_data, bytes):
+                return audio_data
+            else:
+                return np.clip(audio_np, -32768, 32767).astype(np.int16).tobytes()
+        
+        # Nyquist-Frequenz
+        nyquist = 0.5 * self.RATE
+        
+        # Gefilterte Ausgabe initialisieren
+        filtered = np.zeros_like(audio_np)
+        
+        # Für jedes Band einen Bandpass-Filter erstellen und anwenden
+        order = 4
+        for i, center_freq in enumerate(self.eq_bands):
+            gain_db = self.eq_gains[center_freq].get()
+            
+            # Berechne Bandbreite (etwa eine Oktave)
+            if i == 0:
+                # Erstes Band: Tiefpass bis zur Mitte zwischen diesem und nächstem Band
+                f_low = 20
+                f_high = (center_freq + self.eq_bands[i+1]) / 2 if i < len(self.eq_bands)-1 else center_freq * 1.5
+            elif i == len(self.eq_bands) - 1:
+                # Letztes Band: Hochpass von Mitte zwischen vorherigem und diesem Band
+                f_low = (self.eq_bands[i-1] + center_freq) / 2
+                f_high = min(center_freq * 1.5, nyquist * 0.99)
+            else:
+                # Mittlere Bänder: Bandpass
+                f_low = (self.eq_bands[i-1] + center_freq) / 2
+                f_high = (center_freq + self.eq_bands[i+1]) / 2
+            
+            # Normalisiere auf Nyquist-Frequenz
+            low = f_low / nyquist
+            high = f_high / nyquist
+            
+            # Begrenze auf gültigen Bereich (0, 1)
+            low = max(0.01, min(0.99, low))
+            high = max(0.01, min(0.99, high))
+            
+            if low >= high:
+                continue
+            
+            try:
+                # Erstelle Butterworth-Bandpass-Filter
+                if i == 0:
+                    # Tiefpass für niedrigste Frequenzen
+                    b, a = signal.butter(order, high, btype='lowpass')
+                elif i == len(self.eq_bands) - 1:
+                    # Hochpass für höchste Frequenzen
+                    b, a = signal.butter(order, low, btype='highpass')
+                else:
+                    # Bandpass für mittlere Frequenzen
+                    b, a = signal.butter(order, [low, high], btype='bandpass')
+                
+                # Wende Filter an
+                band_filtered = signal.lfilter(b, a, audio_np)
+                
+                # Konvertiere Gain von dB zu linearem Faktor
+                gain_linear = 10.0 ** (gain_db / 20.0)
+                
+                # Addiere gefiltertes und verstärktes Signal
+                filtered += band_filtered * gain_linear
+                
+            except Exception as e:
+                print(f"Fehler bei Equalizer-Band {center_freq}Hz: {e}")
+                continue
+        
+        # Normalisiere falls Spitzen auftreten
+        max_val = np.max(np.abs(filtered))
+        if max_val > 32767:
+            filtered = filtered * (32767 / max_val)
+        
+        # Clipping und Konvertierung
+        filtered = np.clip(filtered, -32768, 32767).astype(np.int16)
+        
+        if isinstance(audio_data, bytes):
+            return filtered.tobytes()
+        else:
+            return filtered.tobytes()
+    
     def create_gui(self):
-
-        row = 0
-        column = 0
-
         # Hauptframe
         main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=row, column=column, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Titel
-        title_label = ttk.Label(main_frame, text="Simplex Repeater", 
+        row = 0
+        
+        # Titel (zentriert)
+        self.title_label = ttk.Label(main_frame, text="Simplex Repeater", 
                                font=('Arial', 16, 'bold'))
-        title_label.grid(row=row, column=0, columnspan=2, pady=10)
-
+        self.title_label.grid(row=row, column=0, columnspan=2, pady=10)
+        
+        # Modus-Umschalter (zentriert)
+        row += 1
+        mode_frame = ttk.Frame(main_frame)
+        mode_frame.grid(row=row, column=0, columnspan=2, pady=10)
+        
+        self.mode_button = ttk.Button(mode_frame, text="Zu Duplex wechseln", 
+                                      command=self.toggle_mode, width=20)
+        self.mode_button.pack()
+        
+        # Trennlinie
+        row += 1
+        ttk.Separator(main_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+        
+        # === Zwei Spalten: Links Input, Rechts Output ===
+        row += 1
+        
+        # Linke Spalte (Input)
+        left_frame = ttk.LabelFrame(main_frame, text="Eingangsbereich", padding="10")
+        left_frame.grid(row=row, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        
+        # Rechte Spalte (Output)  
+        right_frame = ttk.LabelFrame(main_frame, text="Ausgangsbereich", padding="10")
+        right_frame.grid(row=row, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+        
+        # === LINKE SPALTE (INPUT) ===
+        row_left = 0
+        
         # Titel Pegeleinstellungen
-        row += 1 
-        ttk.Label(main_frame, text="Pegeleinstellungen:", font=('Arial', 12, 'bold')).grid(
-            row=row, column=0, sticky=tk.W, pady=5)
+        ttk.Label(left_frame, text="Pegeleinstellungen:", font=('Arial', 11, 'bold')).grid(
+            row=row_left, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
         
         # Eingangspegel-Einstellung (Start Threshold)
-        row += 1 
-        ttk.Label(main_frame, text="Startpegel (rot):").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
+        row_left += 1
+        ttk.Label(left_frame, text="Startpegel (rot):").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
         self.start_threshold_var = tk.IntVar(value=1000)
-        threshold_frame = ttk.Frame(main_frame)
-        threshold_frame.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        threshold_frame = ttk.Frame(left_frame)
+        threshold_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.threshold_scale = ttk.Scale(threshold_frame, from_=0, to=10000,
                                         variable=self.start_threshold_var, orient=tk.HORIZONTAL,
                                         command=self.on_threshold_change)
@@ -95,12 +221,12 @@ class SimplexRepeater:
         self.start_threshold_var.trace('w', self.update_threshold_label)
         
         # Abbruch-Pegel-Einstellung (Stop Threshold)
-        row += 1 
-        ttk.Label(main_frame, text="Stoppegel (grün):").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
+        row_left += 1
+        ttk.Label(left_frame, text="Stoppegel (grün):").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
         self.stop_threshold_var = tk.IntVar(value=100)
-        stop_threshold_frame = ttk.Frame(main_frame)
-        stop_threshold_frame.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        stop_threshold_frame = ttk.Frame(left_frame)
+        stop_threshold_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.stop_threshold_scale = ttk.Scale(stop_threshold_frame, from_=0, to=10000,
                                              variable=self.stop_threshold_var, orient=tk.HORIZONTAL)
         self.stop_threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -109,10 +235,10 @@ class SimplexRepeater:
         self.stop_threshold_var.trace('w', self.update_stop_threshold_label)
         
         # Canvas für Pegelanzeige
-        row += 1 
-        self.level_canvas = tk.Canvas(main_frame, height=40, bg='white', 
+        row_left += 1
+        self.level_canvas = tk.Canvas(left_frame, height=40, bg='white', 
                                       highlightthickness=1, highlightbackground='gray')
-        self.level_canvas.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5, padx=5)
+        self.level_canvas.grid(row=row_left, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
         
         # Elemente für Level-Anzeige
         self.level_bar = None
@@ -120,16 +246,16 @@ class SimplexRepeater:
         self.stop_threshold_line = None
 
         # Titel Pegeldämpfung
-        row += 1 
-        ttk.Label(main_frame, text="Pegeldämpfung:", font=('Arial', 12, 'bold')).grid(
-            row=row, column=0, sticky=tk.W, pady=5)
+        row_left += 1
+        ttk.Label(left_frame, text="Pegeldämpfung:", font=('Arial', 11, 'bold')).grid(
+            row=row_left, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
         
         # Anstiegsdämpfung-Einstellung (Attack in ms)
-        row += 1 
-        ttk.Label(main_frame, text="Anstiegsdämpfung (Attack):").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
-        rise_time_frame = ttk.Frame(main_frame)
-        rise_time_frame.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        row_left += 1
+        ttk.Label(left_frame, text="Anstiegsdämpfung:").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
+        rise_time_frame = ttk.Frame(left_frame)
+        rise_time_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.rise_time_var = tk.DoubleVar(value=0.0)
         self.rise_time_scale = ttk.Scale(rise_time_frame, from_=0.0, to=1000.0,
                                         variable=self.rise_time_var, orient=tk.HORIZONTAL)
@@ -139,11 +265,11 @@ class SimplexRepeater:
         self.rise_time_var.trace('w', self.update_rise_time_label)
         
         # Abfalldämpfung-Einstellung (Release in ms)
-        row += 1 
-        ttk.Label(main_frame, text="Abfalldämpfung (Release)").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
-        fall_time_frame = ttk.Frame(main_frame)
-        fall_time_frame.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        row_left += 1
+        ttk.Label(left_frame, text="Abfalldämpfung:").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
+        fall_time_frame = ttk.Frame(left_frame)
+        fall_time_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.fall_time_var = tk.DoubleVar(value=100.0)
         self.fall_time_scale = ttk.Scale(fall_time_frame, from_=0.0, to=1000.0,
                                         variable=self.fall_time_var, orient=tk.HORIZONTAL)
@@ -153,16 +279,16 @@ class SimplexRepeater:
         self.fall_time_var.trace('w', self.update_fall_time_label)
 
         # Titel Zeiteinstellungen
-        row += 1 
-        ttk.Label(main_frame, text="Zeiteinstellungen:", font=('Arial', 12, 'bold')).grid(
-            row=row, column=0, sticky=tk.W, pady=5)
+        row_left += 1
+        ttk.Label(left_frame, text="Zeiteinstellungen:", font=('Arial', 11, 'bold')).grid(
+            row=row_left, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
         
         # Maximale Aufnahmezeit-Einstellung
-        row += 1 
-        ttk.Label(main_frame, text="Max. Aufnahmezeit:").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
-        record_frame = ttk.Frame(main_frame)
-        record_frame.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        row_left += 1
+        ttk.Label(left_frame, text="Max. Aufnahmezeit:").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
+        record_frame = ttk.Frame(left_frame)
+        record_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.record_time_var = tk.DoubleVar(value=30.0)
         self.record_time_scale = ttk.Scale(record_frame, from_=1.0, to=120.0,
                                           variable=self.record_time_var, orient=tk.HORIZONTAL)
@@ -172,11 +298,11 @@ class SimplexRepeater:
         self.record_time_var.trace('w', self.update_record_time_label)
         
         # Abbruch-Zeit-Einstellung
-        row += 1 
-        ttk.Label(main_frame, text="Max. Unterschreitung Stoppegel: ").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
-        stop_time_frame = ttk.Frame(main_frame)
-        stop_time_frame.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        row_left += 1
+        ttk.Label(left_frame, text="Max. Unterschreitung:").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
+        stop_time_frame = ttk.Frame(left_frame)
+        stop_time_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.stop_time_var = tk.DoubleVar(value=0.5)
         self.stop_time_scale = ttk.Scale(stop_time_frame, from_=0.1, to=5.0,
                                         variable=self.stop_time_var, orient=tk.HORIZONTAL)
@@ -185,12 +311,12 @@ class SimplexRepeater:
         self.stop_time_label.pack(side=tk.LEFT, padx=5)
         self.stop_time_var.trace('w', self.update_stop_time_label)
         
-        # Totzeit-Einstellung
-        row += 1 
-        ttk.Label(main_frame, text="Pause nach Wiedergabe:").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
-        dead_time_frame = ttk.Frame(main_frame)
-        dead_time_frame.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        # Totzeit-Einstellung (nur im Simplex-Modus relevant)
+        row_left += 1
+        ttk.Label(left_frame, text="Pause nach Wiedergabe:").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
+        dead_time_frame = ttk.Frame(left_frame)
+        dead_time_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.dead_time_var = tk.DoubleVar(value=2.0)
         self.dead_time_scale = ttk.Scale(dead_time_frame, from_=0.0, to=10.0,
                                         variable=self.dead_time_var, orient=tk.HORIZONTAL)
@@ -199,37 +325,82 @@ class SimplexRepeater:
         self.dead_time_label.pack(side=tk.LEFT, padx=5)
         self.dead_time_var.trace('w', self.update_dead_time_label)
 
-        # Titel Audioeinstellungen
-        row += 1 
-        ttk.Label(main_frame, text="Audioeinstellungen:", font=('Arial', 12, 'bold')).grid(
-            row=row, column=0, sticky=tk.W, pady=5)
-        
         # Audio-Quelle Auswahl
-        row += 1 
-        ttk.Label(main_frame, text="Audio-Eingangsquelle:").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
+        row_left += 1
+        ttk.Label(left_frame, text="Audioeinstellungen:", font=('Arial', 11, 'bold')).grid(
+            row=row_left, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
+        
+        row_left += 1
+        ttk.Label(left_frame, text="Audio-Eingabe:").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
         self.input_device_var = tk.StringVar()
-        self.input_device_combo = ttk.Combobox(main_frame, textvariable=self.input_device_var,
-                                              state='readonly', width=30)
-        self.input_device_combo.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.input_device_combo = ttk.Combobox(left_frame, textvariable=self.input_device_var,
+                                              state='readonly', width=25)
+        self.input_device_combo.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.input_device_combo.bind('<<ComboboxSelected>>', self.on_input_device_changed)
         
+        # === RECHTE SPALTE (OUTPUT) ===
+        row_right = 0
+        
+        # Titel Equalizer
+        ttk.Label(right_frame, text="Equalizer:", font=('Arial', 11, 'bold')).grid(
+            row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        
+        # Equalizer-Bänder (5 Bänder)
+        self.eq_scales = {}
+        self.eq_labels = {}
+        
+        for band in self.eq_bands:
+            row_right += 1
+            
+            # Band-Label
+            if band < 1000:
+                label_text = f"{band} Hz:"
+            else:
+                label_text = f"{band/1000:.1f} kHz:"
+            
+            ttk.Label(right_frame, text=label_text).grid(
+                row=row_right, column=0, sticky=tk.W, pady=5)
+            
+            # Slider-Frame
+            eq_frame = ttk.Frame(right_frame)
+            eq_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
+            
+            # Slider
+            eq_scale = ttk.Scale(eq_frame, from_=-12.0, to=12.0,
+                                variable=self.eq_gains[band], orient=tk.HORIZONTAL)
+            eq_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            self.eq_scales[band] = eq_scale
+            
+            # Label für aktuellen Wert
+            eq_label = ttk.Label(eq_frame, text="0.0 dB")
+            eq_label.pack(side=tk.LEFT, padx=5)
+            self.eq_labels[band] = eq_label
+            
+            # Trace für Label-Update
+            self.eq_gains[band].trace('w', lambda *args, b=band: self.update_eq_label(b))
+        
+        # Titel Audioeinstellungen
+        row_right += 1
+        ttk.Label(right_frame, text="Audioeinstellungen:", font=('Arial', 11, 'bold')).grid(
+            row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
+        
         # Audio-Ausgabe Auswahl
-        row += 1 
-        ttk.Label(main_frame, text="Audio-Ausgangsquelle:").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
+        row_right += 1
+        ttk.Label(right_frame, text="Audio-Ausgabe:").grid(
+            row=row_right, column=0, sticky=tk.W, pady=5)
         self.output_device_var = tk.StringVar()
-        self.output_device_combo = ttk.Combobox(main_frame, textvariable=self.output_device_var,
-                                               state='readonly', width=30)
-        self.output_device_combo.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.output_device_combo = ttk.Combobox(right_frame, textvariable=self.output_device_var,
+                                               state='readonly', width=25)
+        self.output_device_combo.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
         self.output_device_combo.bind('<<ComboboxSelected>>', self.on_output_device_changed)
         
         # Verstärkungsfaktor-Einstellung
-        row += 1 
-        ttk.Label(main_frame, text="Wiedergabeverstärkung:").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
-        gain_frame = ttk.Frame(main_frame)
-        gain_frame.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=5)
+        row_right += 1
+        ttk.Label(right_frame, text="Wiedergabeverstärkung:").grid(
+            row=row_right, column=0, sticky=tk.W, pady=5)
+        gain_frame = ttk.Frame(right_frame)
+        gain_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
         self.gain_var = tk.DoubleVar(value=0.0)
         self.gain_scale = ttk.Scale(gain_frame, from_=-20.0, to=20.0,
                                     variable=self.gain_var, orient=tk.HORIZONTAL)
@@ -238,28 +409,37 @@ class SimplexRepeater:
         self.gain_label.pack(side=tk.LEFT, padx=5)
         self.gain_var.trace('w', self.update_gain_label)
         
+        # Spalten-Konfiguration
+        left_frame.columnconfigure(1, weight=1)
+        right_frame.columnconfigure(1, weight=1)
+        
+        # === STATUS UND STEUERUNG (unter beiden Spalten) ===
+        row += 1
+        
+        control_frame = ttk.Frame(main_frame)
+        control_frame.grid(row=row, column=0, columnspan=2, pady=10, sticky=(tk.W, tk.E))
+        
         # Status-Anzeige
-        row += 1 
-        ttk.Label(main_frame, text="Status:").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
-        self.status_label = ttk.Label(main_frame, text="Gestoppt", 
+        status_frame = ttk.Frame(control_frame)
+        status_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(status_frame, text="Status:").pack(side=tk.LEFT, padx=5)
+        self.status_label = ttk.Label(status_frame, text="Gestoppt", 
                                       font=('Arial', 10, 'bold'),
                                       foreground='red')
-        self.status_label.grid(row=row, column=1, sticky=tk.W, pady=5)
+        self.status_label.pack(side=tk.LEFT, padx=5)
         
         # Fortschrittsbalken (Aufnahme/Wiedergabe)
-        row += 1 
-        ttk.Label(main_frame, text="Aufnahme/Wiedergabe:").grid(
-            row=row, column=0, sticky=tk.W, pady=5)
-        self.progress = ttk.Progressbar(main_frame, mode='determinate', maximum=100)
-
-        row += 1 
-        self.progress.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        progress_frame = ttk.Frame(control_frame)
+        progress_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(progress_frame, text="Aufnahme/Wiedergabe:").pack(side=tk.LEFT, padx=5)
+        self.progress = ttk.Progressbar(progress_frame, mode='determinate', maximum=100)
+        self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
         # Buttons
-        row += 1 
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=row, column=0, columnspan=2, pady=20)
+        button_frame = ttk.Frame(control_frame)
+        button_frame.pack(pady=10)
         
         self.start_button = ttk.Button(button_frame, text="Start", 
                                       command=self.start_repeater, width=15)
@@ -271,7 +451,10 @@ class SimplexRepeater:
         self.stop_button.pack(side=tk.LEFT, padx=5)
         
         # Grid-Konfiguration
+        main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
         
         # Event-Binding für Canvas-Resize
         self.level_canvas.bind('<Configure>', self.on_canvas_resize)
@@ -309,6 +492,26 @@ class SimplexRepeater:
     def update_gain_label(self, *args):
         value = self.gain_var.get()
         self.gain_label.config(text=f"{value:+.1f} dB")
+    
+    def update_eq_label(self, band):
+        """Aktualisiert das Label für ein Equalizer-Band"""
+        value = self.eq_gains[band].get()
+        self.eq_labels[band].config(text=f"{value:+.1f} dB")
+    
+    def toggle_mode(self):
+        """Wechselt zwischen Simplex und Duplex Modus"""
+        if self.running:
+            messagebox.showwarning("Warnung", "Bitte stoppen Sie den Repeater zuerst!")
+            return
+        
+        self.is_duplex_mode = not self.is_duplex_mode
+        
+        if self.is_duplex_mode:
+            self.title_label.config(text="Duplex Repeater")
+            self.mode_button.config(text="Zu Simplex wechseln")
+        else:
+            self.title_label.config(text="Simplex Repeater")
+            self.mode_button.config(text="Zu Duplex wechseln")
         
     def on_threshold_change(self, value):
         """Wird aufgerufen wenn sich der Eingangspegel ändert"""
@@ -551,180 +754,279 @@ class SimplexRepeater:
         self.level_canvas.tag_raise('stop_threshold')
         
     def audio_loop(self):
-        """Haupt-Audio-Schleife - Monitoring ohne permanente Streams"""
-        input_device = self.get_selected_input_device()
-        
-        if input_device is None:
-            self.root.after(0, messagebox.showerror, "Fehler", 
-                          "Kein Eingabegerät ausgewählt!")
-            self.root.after(0, self.stop_repeater)
-            return
-        
+        """Haupt-Audio-Schleife"""
         try:
-            # Temporärer Monitoring-Stream (nur für Pegelmessung)
-            monitoring_stream = None
+            # Streams initial öffnen
+            self.restart_audio_streams()
             
-            while self.running:
-                # Prüfe ob Streams neu gestartet werden müssen (Geräteänderung)
-                if self.restart_streams_flag:
-                    self.restart_streams_flag = False
-                    if monitoring_stream:
-                        try:
-                            monitoring_stream.stop_stream()
-                            monitoring_stream.close()
-                        except:
-                            pass
-                        monitoring_stream = None
-                    input_device = self.get_selected_input_device()
-                    self.root.after(0, self.update_status, "Bereit - Warte auf Signal...", 'green')
-                
-                # Prüfe ob wir in Totzeit sind
-                current_time = time.time()
-                if current_time < self.dead_time_end:
-                    # In Totzeit - kein Monitoring-Stream
-                    if monitoring_stream:
-                        try:
-                            monitoring_stream.stop_stream()
-                            monitoring_stream.close()
-                        except:
-                            pass
-                        monitoring_stream = None
-                    
-                    remaining = self.dead_time_end - current_time
-                    self.root.after(0, self.update_status, 
-                                  f"Totzeit: {remaining:.1f}s verbleibend", 'orange')
-                    time.sleep(0.1)
-                    continue
-                
-                # Außerhalb Totzeit - Monitoring-Stream öffnen falls nötig
-                if not monitoring_stream and not self.is_recording and not self.is_playing:
-                    try:
-                        monitoring_stream = self.p.open(
-                            format=self.FORMAT,
-                            channels=self.CHANNELS,
-                            rate=self.RATE,
-                            input=True,
-                            input_device_index=input_device,
-                            frames_per_buffer=self.CHUNK
-                        )
-                    except Exception as e:
-                        print(f"Fehler beim Öffnen des Monitoring-Streams: {e}")
-                        time.sleep(0.5)
-                        continue
-                
-                # Pegel überwachen
-                if monitoring_stream and not self.is_recording and not self.is_playing:
-                    try:
-                        data = monitoring_stream.read(self.CHUNK, exception_on_overflow=False)
-                        audio_data = np.frombuffer(data, dtype=np.int16)
-                        level = np.abs(audio_data).mean()
-                        self.root.after(0, self.update_level, level)
-                        
-                        # Prüfe ob Aufnahme getriggert werden soll
-                        if self.current_damped_level > self.start_threshold_var.get():
-                            # Monitoring-Stream schließen vor Aufnahme
-                            try:
-                                monitoring_stream.stop_stream()
-                                monitoring_stream.close()
-                            except:
-                                pass
-                            monitoring_stream = None
-                            
-                            # Starte Aufnahme
-                            self.start_recording()
-                            
-                    except Exception as e:
-                        print(f"Fehler beim Monitoring: {e}")
-                        time.sleep(0.01)
-                else:
-                    time.sleep(0.01)
+            if self.stream_in is None or self.stream_out is None:
+                self.root.after(0, messagebox.showerror, "Fehler", 
+                              "Audio-Streams konnten nicht geöffnet werden!")
+                self.root.after(0, self.stop_repeater)
+                return
             
-            # Aufräumen
-            if monitoring_stream:
-                try:
-                    monitoring_stream.stop_stream()
-                    monitoring_stream.close()
-                except:
-                    pass
+            # Duplex oder Simplex Modus
+            if self.is_duplex_mode:
+                self.audio_loop_duplex()
+            else:
+                self.audio_loop_simplex()
+            
+            # Streams schließen
+            with self.streams_lock:
+                if self.stream_in:
+                    self.stream_in.stop_stream()
+                    self.stream_in.close()
+                    self.stream_in = None
+                if self.stream_out:
+                    self.stream_out.stop_stream()
+                    self.stream_out.close()
+                    self.stream_out = None
             
         except Exception as e:
             self.root.after(0, messagebox.showerror, "Fehler", 
                           f"Audio-Fehler: {str(e)}")
             self.root.after(0, self.stop_repeater)
-            
-    def start_recording(self):
-        """Startet die Aufnahme - öffnet eigenen Stream"""
-        self.is_recording = True
-        self.audio_buffer.clear()
-        self.root.after(0, self.update_status, "Aufnahme läuft...", 'orange')
+    
+    def audio_loop_duplex(self):
+        """Audio-Schleife für Duplex-Modus (gleichzeitig aufnehmen und abspielen)"""
+        # Separate Buffers für Duplex
+        self.duplex_playback_buffer = deque()
+        self.duplex_recording = True
         
-        input_device = self.get_selected_input_device()
-        if input_device is None:
-            self.is_recording = False
-            return
-        
-        record_stream = None
-        try:
-            # Stream für Aufnahme öffnen
-            record_stream = self.p.open(
-                format=self.FORMAT,
-                channels=self.CHANNELS,
-                rate=self.RATE,
-                input=True,
-                input_device_index=input_device,
-                frames_per_buffer=self.CHUNK
-            )
-            
+        # Thread für kontinuierliche Aufnahme
+        def record_thread():
             record_time = self.record_time_var.get()
             chunks_to_record = int(self.RATE / self.CHUNK * record_time)
             
             stop_threshold = self.stop_threshold_var.get()
             stop_time = self.stop_time_var.get()
             chunks_for_stop = int(self.RATE / self.CHUNK * stop_time)
-            low_level_counter = 0
             
-            # Aufnahme
-            chunk_count = 0
-            for _ in range(chunks_to_record):
-                if not self.running:
-                    break
+            while self.running and self.duplex_recording:
+                # Warte auf Trigger
+                triggered = False
+                while self.running and self.duplex_recording and not triggered:
+                    try:
+                        with self.streams_lock:
+                            if self.stream_in is None:
+                                return
+                            data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                        
+                        audio_data = np.frombuffer(data, dtype=np.int16)
+                        level = np.abs(audio_data).mean()
+                        self.root.after(0, self.update_level, level)
+                        
+                        # Prüfe Trigger
+                        if self.current_damped_level > self.start_threshold_var.get():
+                            triggered = True
+                            self.root.after(0, self.update_status, "Duplex: Aufnahme läuft...", 'orange')
+                            
+                    except Exception as e:
+                        print(f"Fehler beim Lesen (Duplex): {e}")
+                        time.sleep(0.01)
+                
+                if not triggered:
+                    continue
+                
+                # Aufnahme
+                recording_buffer = deque()
+                recording_buffer.append(data)
+                chunk_count = 1
+                low_level_counter = 0
+                
+                for _ in range(chunks_to_record - 1):
+                    if not self.running or not self.duplex_recording:
+                        break
+                    
+                    try:
+                        with self.streams_lock:
+                            if self.stream_in is None:
+                                break
+                            data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                        
+                        recording_buffer.append(data)
+                        chunk_count += 1
+                        
+                        # Pegel aktualisieren
+                        audio_data = np.frombuffer(data, dtype=np.int16)
+                        level = np.abs(audio_data).mean()
+                        self.root.after(0, self.update_level, level)
+                        
+                        # Prüfe Abbruch
+                        if self.current_damped_level < stop_threshold:
+                            low_level_counter += 1
+                            if low_level_counter >= chunks_for_stop:
+                                break
+                        else:
+                            low_level_counter = 0
+                            
+                    except Exception as e:
+                        print(f"Fehler bei Aufnahme (Duplex): {e}")
+                        break
+                
+                # Aufgenommenes Audio zur Wiedergabe hinzufügen
+                for chunk in recording_buffer:
+                    self.duplex_playback_buffer.append(chunk)
+                
+                self.root.after(0, self.update_status, "Duplex: Bereit...", 'green')
+        
+        # Thread für kontinuierliche Wiedergabe
+        def playback_thread():
+            silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
+            
+            while self.running:
                 try:
-                    data = record_stream.read(self.CHUNK, exception_on_overflow=False)
-                    
-                    self.audio_buffer.append(data)
-                    chunk_count += 1
-                    
-                    # Fortschritt aktualisieren
-                    progress_percent = (chunk_count / chunks_to_record) * 100
-                    self.root.after(0, self.update_progress, progress_percent)
-                    
-                    # Pegel aktualisieren
-                    audio_data = np.frombuffer(data, dtype=np.int16)
-                    level = np.abs(audio_data).mean()
-                    self.root.after(0, self.update_level, level)
-                    
-                    # Prüfe ob gedämpfter Pegel unter Abbruch-Pegel
-                    if self.current_damped_level < stop_threshold:
-                        low_level_counter += 1
-                        if low_level_counter >= chunks_for_stop:
-                            break
+                    if len(self.duplex_playback_buffer) > 0:
+                        # Spiele Buffer ab
+                        data = self.duplex_playback_buffer.popleft()
+                        
+                        # Verstärkung anwenden
+                        data = self.apply_gain(data)
+                        
+                        # Equalizer anwenden
+                        data = self.apply_equalizer(data)
+                        
+                        with self.streams_lock:
+                            if self.stream_out:
+                                self.stream_out.write(data)
                     else:
-                        low_level_counter = 0
+                        # Stille ausgeben
+                        with self.streams_lock:
+                            if self.stream_out:
+                                self.stream_out.write(silence)
+                        time.sleep(0.001)
                         
                 except Exception as e:
-                    print(f"Fehler bei Aufnahme: {e}")
+                    print(f"Fehler bei Wiedergabe (Duplex): {e}")
+                    time.sleep(0.01)
+        
+        # Starte beide Threads
+        record_t = threading.Thread(target=record_thread, daemon=True)
+        playback_t = threading.Thread(target=playback_thread, daemon=True)
+        
+        record_t.start()
+        playback_t.start()
+        
+        # Warte auf Beendigung
+        while self.running:
+            time.sleep(0.1)
+        
+        self.duplex_recording = False
+        record_t.join(timeout=1.0)
+        playback_t.join(timeout=1.0)
+    
+    def audio_loop_simplex(self):
+        """Audio-Schleife für Simplex-Modus (klassischer Modus)"""
+        # Stille-Puffer für Output (wenn nicht abgespielt wird)
+        silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
+        
+        while self.running:
+            # Prüfe ob Streams neu gestartet werden müssen
+            if self.restart_streams_flag:
+                self.restart_streams_flag = False
+                self.root.after(0, self.update_status, "Quellen werden gewechselt...", 'orange')
+                
+                # Warte bis Aufnahme/Wiedergabe beendet ist
+                while (self.is_recording or self.is_playing) and self.running:
+                    time.sleep(0.1)
+                
+                # Streams neu starten
+                self.restart_audio_streams()
+                
+                if self.stream_in is None or self.stream_out is None:
+                    self.root.after(0, messagebox.showerror, "Fehler", 
+                                  "Audio-Streams konnten nicht gewechselt werden!")
                     break
+                
+                self.root.after(0, self.update_status, "Bereit - Warte auf Signal...", 'green')
             
-        finally:
-            # Stream schließen
-            if record_stream:
-                try:
-                    record_stream.stop_stream()
-                    record_stream.close()
-                except:
-                    pass
+            # Audio-Daten lesen
+            try:
+                with self.streams_lock:
+                    if self.stream_in is None:
+                        break
+                    data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                
+                audio_data = np.frombuffer(data, dtype=np.int16)
+                
+                # Pegel berechnen
+                level = np.abs(audio_data).mean()
+                self.root.after(0, self.update_level, level)
+                
+                # Wenn nicht gerade abgespielt wird und nicht aufgenommen wird
+                if not self.is_playing and not self.is_recording:
+                    # Stille ausgeben, um Stream aktiv zu halten
+                    with self.streams_lock:
+                        if self.stream_out:
+                            self.stream_out.write(silence)
+                    
+                    # Prüfe ob wir noch in Totzeit sind
+                    current_time = time.time()
+                    if current_time < self.dead_time_end:
+                        # Noch in Totzeit
+                        remaining = self.dead_time_end - current_time
+                        self.root.after(0, self.update_status, 
+                                      f"Totzeit: {remaining:.1f}s verbleibend", 'orange')
+                    elif self.current_damped_level > self.start_threshold_var.get():
+                        # Verwende gedämpften Pegel für Trigger
+                        self.start_recording()
+                        
+            except Exception as e:
+                print(f"Fehler beim Lesen: {e}")
+                time.sleep(0.01)
             
-            self.is_recording = False
+    def start_recording(self):
+        """Startet die Aufnahme"""
+        self.is_recording = True
+        self.audio_buffer.clear()
+        self.root.after(0, self.update_status, "Aufnahme läuft...", 'orange')
+        
+        record_time = self.record_time_var.get()
+        chunks_to_record = int(self.RATE / self.CHUNK * record_time)
+        
+        stop_threshold = self.stop_threshold_var.get()
+        stop_time = self.stop_time_var.get()
+        chunks_for_stop = int(self.RATE / self.CHUNK * stop_time)
+        low_level_counter = 0
+        
+        # Aufnahme
+        chunk_count = 0
+        for _ in range(chunks_to_record):
+            if not self.running:
+                break
+            try:
+                with self.streams_lock:
+                    if self.stream_in is None:
+                        break
+                    data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                
+                self.audio_buffer.append(data)
+                chunk_count += 1
+                
+                # Fortschritt aktualisieren
+                progress_percent = (chunk_count / chunks_to_record) * 100
+                self.root.after(0, self.update_progress, progress_percent)
+                
+                # Pegel aktualisieren
+                audio_data = np.frombuffer(data, dtype=np.int16)
+                level = np.abs(audio_data).mean()
+                self.root.after(0, self.update_level, level)
+                
+                # Prüfe ob gedämpfter Pegel unter Abbruch-Pegel
+                # Verwende gedämpften Pegel für konsistente Triggerung
+                if self.current_damped_level < stop_threshold:
+                    low_level_counter += 1
+                    # Wenn Pegel lange genug unter Schwelle, breche ab
+                    if low_level_counter >= chunks_for_stop:
+                        break
+                else:
+                    low_level_counter = 0
+                    
+            except Exception as e:
+                print(f"Fehler bei Aufnahme: {e}")
+                break
+                
+        self.is_recording = False
         
         # Sofort abspielen
         if self.running and len(self.audio_buffer) > 0:
@@ -757,29 +1059,12 @@ class SimplexRepeater:
         return audio_data.astype(np.int16).tobytes()
     
     def play_audio(self):
-        """Spielt aufgenommenes Audio ab - öffnet eigenen Stream"""
+        """Spielt aufgenommenes Audio ab - verwendet den bereits geöffneten Stream"""
         self.is_playing = True
         self.root.after(0, self.update_status, "Wiedergabe läuft...", 'blue')
         
-        output_device = self.get_selected_output_device()
-        if output_device is None:
-            self.is_playing = False
-            self.audio_buffer.clear()
-            return
-        
-        playback_stream = None
         try:
-            # Stream für Wiedergabe öffnen
-            playback_stream = self.p.open(
-                format=self.FORMAT,
-                channels=self.CHANNELS,
-                rate=self.RATE,
-                output=True,
-                output_device_index=output_device,
-                frames_per_buffer=self.CHUNK
-            )
-            
-            # Audio abspielen
+            # Audio abspielen über den bereits geöffneten Stream
             total_chunks = len(self.audio_buffer)
             played_chunks = 0
             
@@ -789,7 +1074,14 @@ class SimplexRepeater:
                 # Verstärkung anwenden
                 data = self.apply_gain(data)
                 
-                playback_stream.write(data)
+                # Equalizer anwenden
+                data = self.apply_equalizer(data)
+                
+                with self.streams_lock:
+                    if self.stream_out is None:
+                        break
+                    self.stream_out.write(data)
+                
                 played_chunks += 1
                 
                 # Fortschritt aktualisieren (rückwärts von 100 zu 0)
@@ -798,18 +1090,9 @@ class SimplexRepeater:
             
         except Exception as e:
             print(f"Fehler bei Wiedergabe: {e}")
-        
-        finally:
-            # Stream schließen
-            if playback_stream:
-                try:
-                    playback_stream.stop_stream()
-                    playback_stream.close()
-                except:
-                    pass
             
-            self.is_playing = False
-            self.audio_buffer.clear()
+        self.is_playing = False
+        self.audio_buffer.clear()
         
         # Totzeit setzen
         dead_time = self.dead_time_var.get()
@@ -835,6 +1118,17 @@ class SimplexRepeater:
                 self.stop_time_var.set(config.get('stop_time', 0.5))
                 self.dead_time_var.set(config.get('dead_time', 2.0))
                 self.gain_var.set(config.get('gain', 0.0))
+                
+                # Equalizer-Einstellungen laden
+                eq_config = config.get('equalizer', {})
+                for band in self.eq_bands:
+                    if str(band) in eq_config:
+                        self.eq_gains[band].set(eq_config[str(band)])
+                
+                # Modus laden
+                saved_duplex_mode = config.get('duplex_mode', False)
+                if saved_duplex_mode != self.is_duplex_mode:
+                    self.toggle_mode()
                 
                 # Audiogeräte aus Konfiguration setzen (falls vorhanden)
                 input_device = config.get('input_device', '')
@@ -865,6 +1159,11 @@ class SimplexRepeater:
     def save_config(self):
         """Speichert Konfiguration in Datei"""
         try:
+            # Equalizer-Einstellungen sammeln
+            eq_config = {}
+            for band in self.eq_bands:
+                eq_config[str(band)] = self.eq_gains[band].get()
+            
             config = {
                 'start_threshold': self.start_threshold_var.get(),
                 'stop_threshold': self.stop_threshold_var.get(),
@@ -874,6 +1173,8 @@ class SimplexRepeater:
                 'stop_time': self.stop_time_var.get(),
                 'dead_time': self.dead_time_var.get(),
                 'gain': self.gain_var.get(),
+                'equalizer': eq_config,
+                'duplex_mode': self.is_duplex_mode,
                 'input_device': self.input_device_var.get(),
                 'output_device': self.output_device_var.get()
             }

@@ -55,3 +55,26 @@ Ich habe ein President George II und bei der Verwendung des Simplex Repeaters ko
 
 Schritt 15: 
 Ich glaube den Fehler gefunden zu haben. Der Simplex Repeater ist nun so programmiert, dass Aufnahme und Wiedergabe permanent aktiv sind, das war keine gute Idee. Offenbar scheint es von Recher- oder Funkgerätseite Knackgeräusche beim Umschalten zu geben, denn die Schleife beginnt wenn die Lautstärke des Funkgeräts zu hoch ist und nach dem Abspielen der Aufnahme. Bitte ändere das Programm so, dass die Audio Eingangs- und Ausgangsquellen nur während der Aufnahme bzw. Wiedergabe verbunden sind und bei der Totzeit nichts verbunden ist. 
+
+Schritt 16:
+Das Programm funktioniert jetzt einwandfrei und die Aufnahme-Wiedergabe Schleife ist verschwunden! Gelöst wurde das Problem durch eine elektrische Entkopplung des Lautsprecherausgangs. Es wäre zwar schön gewesen wenn es ohne diese zusätzliche Bauteil funktioniert hätte, aber alle Versuche haben gezeigt, dass es sich nicht mit Software ersetzen lässt. Vielen Dank für deine Tipps und deine Hilfe!
+
+Ich möchte das Programm nun erweitern. Dazu ist es nötig das GUI in zwei Spalten aufzuteilen. In der linken Spalte sollen alle Einstellungen für den Eingangsbereich sein und in der rechten Spalte alle Einstellungen für den Ausgangsbereich. Es soll weiterhin so programmiert sein wie im Quellcode zum Beispiel in diesen Zeilen zu sehen ist:
+
+65: row=0
+77: row+=1
+97: row+=1
+
+Dadurch lässt sich die Reihenfolge der Einstellungen leichter ändern.
+
+
+Der Ausgangsbereich soll um einen mehrband Equalizer erweitert werden, der die Frequenzbereiche 60Hz, 230Hz, 910Hz, 3.6kHz und 14kHz abdeckt. Jeder Frequenzbereich soll einen eigenen Schieberegler für die Verstärkung in Dezibel (dB) haben, mit einem Bereich von -12 dB bis +12 dB und einem Standardwert von 0 dB. Der Equalizer soll die Audiodaten in Echtzeit während der Wiedergabe verarbeiten. Hier ist der Link zu einem Beispielprojekt, das als Grundlage für die Implementierung des Equalizers dienen kann: https://github.com/mayank12gt/Audio-Equalizer
+
+Außerdem soll der Repeater um eine Douplex Funktion erweitert werden. Der Repeater soll dann gleichzeitig aufnehmen und wiedergeben können, ohne dass die Aufnahme durch die Wiedergabe unterbrochen wird. Der Equalizer soll sowohl auf die Simplex- als auch auf die Duplex-Funktion angewendet werden können, aber nur das abgespielte Signal beeinflussen.
+
+Der Knopf zum umschalten zwischen Simplex und Duplex soll in der Mitte über den beiden Spalten platziert werden. Die Überschrift des Programms soll ebenfalls in die Mitte über den Umschaltknopf platziert werden und sich je nach Modus in "Simplex Repeater" oder "Duplex Repeater" ändern.
+
+Schritt 17:
+Das Programm funktioniert bis auf die Douplex Aufnahme oder Wiedergabe einwandfrei! Die Wiedergabe beginnt erst nach der eingestellten Simplex Aufnahmezeit, sollte aber sofort beginnen. Sobald die Wiedergabe beginnt, stottert sie etwa 3-10 mal Sekunde. 
+
+Zusätzlich soll eine einstellbare Verzögerungszeit von bis zu 1 Sekunde für die Wiedergabe hinzugefügt werden, die in Millisekunden angegeben wird, um Rückkopplungen zu unterdrücken. Start- und Stoppegel sollen in der Duplex Funktion ignoriert werden, da die Aufnahme permanent läuft.
