@@ -21,13 +21,13 @@ class SimplexRepeater:
     def __init__(self, root):
         self.root = root
         self.root.title("Simplex Repeater")
-        self.root.geometry("900x700")
+        self.root.geometry("1200x800")
         
         # Audio-Parameter
         self.CHUNK = 1024
         self.FORMAT = pyaudio.paInt16
         self.CHANNELS = 1
-        self.RATE = 44100
+        self.RATE = 8000 #44100
         
         # Konfigurationsdatei
         self.config_file = os.path.join(os.path.expanduser("~"), ".simplex_repeater_config.json")
@@ -49,6 +49,9 @@ class SimplexRepeater:
         self.eq_gains = {}  # Dictionary für Gain-Werte (dB)
         for band in self.eq_bands:
             self.eq_gains[band] = tk.DoubleVar(value=0.0)
+        
+        # Wiedergabeverzögerung (für Duplex-Modus)
+        self.playback_delay_ms = 0  # in Millisekunden
         
         # Streams für dynamisches Umschalten
         self.stream_in = None
@@ -324,6 +327,21 @@ class SimplexRepeater:
         self.dead_time_label = ttk.Label(dead_time_frame, text="2.0s")
         self.dead_time_label.pack(side=tk.LEFT, padx=5)
         self.dead_time_var.trace('w', self.update_dead_time_label)
+        
+        # Wiedergabeverzögerung-Einstellung (nur im Duplex-Modus relevant)
+        row_left += 1
+        ttk.Label(left_frame, text="Wiedergabeverzögerung:").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
+        playback_delay_frame = ttk.Frame(left_frame)
+        playback_delay_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.playback_delay_var = tk.IntVar(value=0)
+        self.playback_delay_scale = ttk.Scale(playback_delay_frame, from_=0, to=1000,
+                                        variable=self.playback_delay_var, orient=tk.HORIZONTAL,
+                                        command=self.on_playback_delay_change)
+        self.playback_delay_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.playback_delay_label = ttk.Label(playback_delay_frame, text="0 ms")
+        self.playback_delay_label.pack(side=tk.LEFT, padx=5)
+        self.playback_delay_var.trace('w', self.update_playback_delay_label)
 
         # Audio-Quelle Auswahl
         row_left += 1
@@ -474,6 +492,14 @@ class SimplexRepeater:
         
     def update_dead_time_label(self, *args):
         self.dead_time_label.config(text=f"{self.dead_time_var.get():.1f}s")
+        
+    def update_playback_delay_label(self, *args):
+        value = self.playback_delay_var.get()
+        self.playback_delay_label.config(text=f"{value} ms")
+        
+    def on_playback_delay_change(self, value):
+        """Wird aufgerufen wenn sich die Wiedergabeverzögerung ändert"""
+        self.playback_delay_ms = int(float(value))
         
     def update_rise_time_label(self, *args):
         value = self.rise_time_var.get()
@@ -788,96 +814,62 @@ class SimplexRepeater:
             self.root.after(0, self.stop_repeater)
     
     def audio_loop_duplex(self):
-        """Audio-Schleife für Duplex-Modus (gleichzeitig aufnehmen und abspielen)"""
-        # Separate Buffers für Duplex
-        self.duplex_playback_buffer = deque()
+        """Audio-Schleife für Duplex-Modus (gleichzeitig aufnehmen und abspielen)
+        Kontinuierliches Streaming ohne Trigger-Logik
+        """
+        # Ring-Buffer für verzögertes Wiedergabe-Streaming
+        # Größe basierend auf Verzögerungszeit berechnen
+        delay_ms = self.playback_delay_var.get()
+        delay_chunks = int((delay_ms / 1000.0) * self.RATE / self.CHUNK)
+        
+        # Mindestens 2 Chunks für flüssiges Streaming
+        delay_chunks = max(2, delay_chunks)
+        
+        self.duplex_playback_buffer = deque(maxlen=delay_chunks + 50)  # Extra Puffer
         self.duplex_recording = True
+        
+        # Stille für initialen Buffer
+        silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
+        
+        # Fülle Buffer initial mit Verzögerung
+        for _ in range(delay_chunks):
+            self.duplex_playback_buffer.append(silence)
+        
+        self.root.after(0, self.update_status, "Duplex: Aktiv (permanent)", 'green')
         
         # Thread für kontinuierliche Aufnahme
         def record_thread():
-            record_time = self.record_time_var.get()
-            chunks_to_record = int(self.RATE / self.CHUNK * record_time)
-            
-            stop_threshold = self.stop_threshold_var.get()
-            stop_time = self.stop_time_var.get()
-            chunks_for_stop = int(self.RATE / self.CHUNK * stop_time)
-            
+            """Kontinuierliche Aufnahme ohne Trigger - läuft permanent"""
             while self.running and self.duplex_recording:
-                # Warte auf Trigger
-                triggered = False
-                while self.running and self.duplex_recording and not triggered:
-                    try:
-                        with self.streams_lock:
-                            if self.stream_in is None:
-                                return
-                            data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
-                        
-                        audio_data = np.frombuffer(data, dtype=np.int16)
-                        level = np.abs(audio_data).mean()
-                        self.root.after(0, self.update_level, level)
-                        
-                        # Prüfe Trigger
-                        if self.current_damped_level > self.start_threshold_var.get():
-                            triggered = True
-                            self.root.after(0, self.update_status, "Duplex: Aufnahme läuft...", 'orange')
-                            
-                    except Exception as e:
-                        print(f"Fehler beim Lesen (Duplex): {e}")
-                        time.sleep(0.01)
-                
-                if not triggered:
-                    continue
-                
-                # Aufnahme
-                recording_buffer = deque()
-                recording_buffer.append(data)
-                chunk_count = 1
-                low_level_counter = 0
-                
-                for _ in range(chunks_to_record - 1):
-                    if not self.running or not self.duplex_recording:
-                        break
+                try:
+                    with self.streams_lock:
+                        if self.stream_in is None:
+                            return
+                        data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
                     
-                    try:
-                        with self.streams_lock:
-                            if self.stream_in is None:
-                                break
-                            data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
-                        
-                        recording_buffer.append(data)
-                        chunk_count += 1
-                        
-                        # Pegel aktualisieren
-                        audio_data = np.frombuffer(data, dtype=np.int16)
-                        level = np.abs(audio_data).mean()
-                        self.root.after(0, self.update_level, level)
-                        
-                        # Prüfe Abbruch
-                        if self.current_damped_level < stop_threshold:
-                            low_level_counter += 1
-                            if low_level_counter >= chunks_for_stop:
-                                break
-                        else:
-                            low_level_counter = 0
-                            
-                    except Exception as e:
-                        print(f"Fehler bei Aufnahme (Duplex): {e}")
-                        break
-                
-                # Aufgenommenes Audio zur Wiedergabe hinzufügen
-                for chunk in recording_buffer:
-                    self.duplex_playback_buffer.append(chunk)
-                
-                self.root.after(0, self.update_status, "Duplex: Bereit...", 'green')
+                    # Pegel für Anzeige aktualisieren
+                    audio_data = np.frombuffer(data, dtype=np.int16)
+                    level = np.abs(audio_data).mean()
+                    self.root.after(0, self.update_level, level)
+                    
+                    # Sofort zum Wiedergabe-Buffer hinzufügen
+                    self.duplex_playback_buffer.append(data)
+                    
+                except Exception as e:
+                    print(f"Fehler beim Lesen (Duplex): {e}")
+                    time.sleep(0.001)
         
         # Thread für kontinuierliche Wiedergabe
         def playback_thread():
-            silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
+            """Kontinuierliche Wiedergabe aus Buffer"""
+            # Warte bis Buffer gefüllt ist
+            while len(self.duplex_playback_buffer) < delay_chunks and self.running:
+                time.sleep(0.001)
             
             while self.running:
                 try:
                     if len(self.duplex_playback_buffer) > 0:
-                        # Spiele Buffer ab
+                        # Hole ältesten Chunk aus Buffer
                         data = self.duplex_playback_buffer.popleft()
                         
                         # Verstärkung anwenden
@@ -890,15 +882,12 @@ class SimplexRepeater:
                             if self.stream_out:
                                 self.stream_out.write(data)
                     else:
-                        # Stille ausgeben
-                        with self.streams_lock:
-                            if self.stream_out:
-                                self.stream_out.write(silence)
+                        # Falls Buffer leer (sollte nicht passieren), kurz warten
                         time.sleep(0.001)
                         
                 except Exception as e:
                     print(f"Fehler bei Wiedergabe (Duplex): {e}")
-                    time.sleep(0.01)
+                    time.sleep(0.001)
         
         # Starte beide Threads
         record_t = threading.Thread(target=record_thread, daemon=True)
@@ -1130,6 +1119,10 @@ class SimplexRepeater:
                 if saved_duplex_mode != self.is_duplex_mode:
                     self.toggle_mode()
                 
+                # Wiedergabeverzögerung laden
+                self.playback_delay_var.set(config.get('playback_delay', 0))
+                self.playback_delay_ms = config.get('playback_delay', 0)
+                
                 # Audiogeräte aus Konfiguration setzen (falls vorhanden)
                 input_device = config.get('input_device', '')
                 output_device = config.get('output_device', '')
@@ -1173,6 +1166,7 @@ class SimplexRepeater:
                 'stop_time': self.stop_time_var.get(),
                 'dead_time': self.dead_time_var.get(),
                 'gain': self.gain_var.get(),
+                'playback_delay': self.playback_delay_var.get(),
                 'equalizer': eq_config,
                 'duplex_mode': self.is_duplex_mode,
                 'input_device': self.input_device_var.get(),

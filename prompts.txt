@@ -75,6 +75,7 @@ Außerdem soll der Repeater um eine Douplex Funktion erweitert werden. Der Repea
 Der Knopf zum umschalten zwischen Simplex und Duplex soll in der Mitte über den beiden Spalten platziert werden. Die Überschrift des Programms soll ebenfalls in die Mitte über den Umschaltknopf platziert werden und sich je nach Modus in "Simplex Repeater" oder "Duplex Repeater" ändern.
 
 Schritt 17:
-Das Programm funktioniert bis auf die Douplex Aufnahme oder Wiedergabe einwandfrei! Die Wiedergabe beginnt erst nach der eingestellten Simplex Aufnahmezeit, sollte aber sofort beginnen. Sobald die Wiedergabe beginnt, stottert sie etwa 3-10 mal Sekunde. 
+Das Programm und der Equalizer funktioniert bis auf die Douplex Aufnahme oder Wiedergabe einwandfrei! Die Wiedergabe beginnt erst nach der eingestellten Simplex Aufnahmezeit, sollte aber sofort beginnen. Sobald die Wiedergabe dann beginnt, stottert sie jedoch stark. Bitte behebe das so, dass die Wiedergabe sofort nach dem Start der Aufnahme beginnt und flüssig wiedergegeben wird. 
+Eine 8 Sekunden lange Aufnahme der stotternden Wiedergabe findest du in der Datei "test-record-440hz.flac".
 
-Zusätzlich soll eine einstellbare Verzögerungszeit von bis zu 1 Sekunde für die Wiedergabe hinzugefügt werden, die in Millisekunden angegeben wird, um Rückkopplungen zu unterdrücken. Start- und Stoppegel sollen in der Duplex Funktion ignoriert werden, da die Aufnahme permanent läuft.
+Zusätzlich soll eine einstellbare Verzögerungszeit von bis zu 1 Sekunde für die Wiedergabe hinzugefügt werden, die in Millisekunden angegeben wird, um Rückkopplungen zu unterdrücken. Start- und Stoppegel sollen in der Duplex Funktion ignoriert werden, da die Aufnahme permanent läuft. 
