@@ -772,6 +772,8 @@ class SimplexRepeater:
     def stop_repeater(self):
         """Stoppt den Repeater"""
         self.running = False
+        self.is_recording = False
+        self.is_playing = False
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
         self.update_status("Gestoppt", 'red')
@@ -977,10 +979,6 @@ class SimplexRepeater:
     
     def audio_loop_simplex(self):
         """Audio-Schleife für Simplex-Modus (klassischer Modus)"""
-        # Stille-Puffer für Output (wenn nicht abgespielt wird)
-        silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
-        chunk_counter = 0  # Für Rate-Limiting
-        status_update_counter = 0
         
         while self.running:
             # Prüfe ob Streams neu gestartet werden müssen
@@ -1008,27 +1006,28 @@ class SimplexRepeater:
                     if self.stream_in is None:
                         break
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+
+                    # Verstärkung anwenden
+                    data = self.apply_gain(data)
+
+                    # Equalizer anwenden (wird übersprungen wenn deaktiviert)
+                    data = self.apply_equalizer(data)
+
+                    # Sofort wieder ausgeben (Monitoring)
+                    self.stream_out.write(data)
                 
-                # Pegel aktualisieren (nur jeden 6. Chunk für Performance)
+                # Pegel aktualisieren
                 level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
                 self.update_level(level)
                 
                 # Wenn nicht gerade abgespielt wird und nicht aufgenommen wird
                 if not self.is_playing and not self.is_recording:
-                    # Stille ausgeben, um Stream aktiv zu halten
-                    with self.streams_lock:
-                        if self.stream_out:
-                            self.stream_out.write(silence)
-                    
                     # Prüfe ob wir noch in Totzeit sind
                     current_time = time.time()
                     if current_time < self.dead_time_end:
-                        # Noch in Totzeit - Status nur alle 20 Chunks updaten
-                        status_update_counter += 1
-                        if status_update_counter >= 20:
-                            status_update_counter = 0
-                            remaining = self.dead_time_end - current_time
-                            self.root.after(0, self.update_status, 
+                        # Noch in Totzeit 
+                        remaining = self.dead_time_end - current_time
+                        self.root.after(0, self.update_status, 
                                           f"Totzeit: {remaining:.1f}s verbleibend", 'orange')
                     elif self.current_damped_level > self.start_threshold_var.get():
                         # Verwende gedämpften Pegel für Trigger
@@ -1044,37 +1043,47 @@ class SimplexRepeater:
         self.audio_buffer.clear()
         self.root.after(0, self.update_status, "Aufnahme läuft...", 'orange')
         
-        record_time = self.record_time_var.get()
-        chunks_to_record = int(self.RATE / self.CHUNK * record_time)
         
         stop_threshold = self.stop_threshold_var.get()
         stop_time = self.stop_time_var.get()
         chunks_for_stop = int(self.RATE / self.CHUNK * stop_time)
         low_level_counter = 0
+
+        def get_chunks_to_record():
+            record_time = self.record_time_var.get()
+            return int(self.RATE / self.CHUNK * record_time)
         
         # Aufnahme
         chunk_count = 0
-        for _ in range(chunks_to_record):
+        for _ in range(get_chunks_to_record()):
             if not self.running:
                 break
+            chunks_to_record = get_chunks_to_record()
             try:
-                with self.streams_lock:
-                    if self.stream_in is None:
-                        break
-                    data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
-                
-                self.audio_buffer.append(data)
+
+                if chunk_count >= chunks_to_record:
+                    break
+
+                data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
                 chunk_count += 1
+
+                # Verstärkung anwenden
+                data = self.apply_gain(data)
+
+                # Equalizer anwenden (wird übersprungen wenn deaktiviert)
+                data = self.apply_equalizer(data)
+
+                self.audio_buffer.append(data)
+
+                # Sofort wieder ausgeben (Monitoring)
+                self.stream_out.write(data)
                 
-                # Fortschritt aktualisieren (nur jeden 8. Chunk für Performance)
-                if chunk_count % 8 == 0 or chunk_count == chunks_to_record:
-                    progress_percent = (chunk_count / chunks_to_record) * 100
-                    self.root.after(0, self.update_progress, progress_percent)
                 
-                # Pegel aktualisieren (nur jeden 6. Chunk)
-                if chunk_count % 6 == 0:
-                    level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
-                    self.update_level(level)
+                progress_percent = (chunk_count / chunks_to_record) * 100
+                self.root.after(0, self.update_progress, progress_percent)
+
+                level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
+                self.update_level(level)
                 
                 # Prüfe ob gedämpfter Pegel unter Abbruch-Pegel
                 # Verwende gedämpften Pegel für konsistente Triggerung
@@ -1135,23 +1144,15 @@ class SimplexRepeater:
             while self.audio_buffer and self.running:
                 data = self.audio_buffer.popleft()
                 
-                # Verstärkung anwenden
-                data = self.apply_gain(data)
-                
-                # Equalizer anwenden
-                data = self.apply_equalizer(data)
-                
-                with self.streams_lock:
-                    if self.stream_out is None:
-                        break
-                    self.stream_out.write(data)
+                self.stream_out.write(data)
                 
                 played_chunks += 1
+
+                level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
+                self.update_level(level)
                 
-                # Fortschritt aktualisieren (nur jeden 8. Chunk für Performance)
-                if played_chunks % 8 == 0 or played_chunks == total_chunks:
-                    progress_percent = 100 - ((played_chunks / total_chunks) * 100)
-                    self.root.after(0, self.update_progress, progress_percent)
+                progress_percent = 100 - ((played_chunks / total_chunks) * 100)
+                self.root.after(0, self.update_progress, progress_percent)
             
         except Exception as e:
             print(f"Fehler bei Wiedergabe: {e}")

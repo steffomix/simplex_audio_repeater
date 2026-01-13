@@ -231,7 +231,5 @@ duplex_playback_buffer 1 removed, length now:   9
 duplex_playback_buffer 1 added, length now:   10
 Log Ende.
 
-self.last_gui_update_time = 0
-        self.gui_update_interval = 0.3 # 0.05  # Nur alle 50ms GUI updaten (20 FPS)
-        self.pending_level = 0
-        self.gui_update_pending = False
+Schritt 23:
+Mit ein paar Handgriffen konnte ich die Performance Probleme im Duplex Modus deutlich reduzieren. Jetzt erst mal wieder zurück zum Simplex Modus. Der Spielt keinen Ton ab und braucht keine Performance Optimierung. Der Levelbalken muss im Simplex Modus auch nicht aktualisiert werden. Bitte behebe das.
