@@ -27,8 +27,7 @@ class SimplexRepeater:
         self.CHUNK = 1024
         self.FORMAT = pyaudio.paInt16
         self.CHANNELS = 1
-        self.RATE = 22000  # Standard: 22000 Hz (gute Balance zwischen Qualität und Performance)
-        
+        self.RATE = 44000 
         # Equalizer-Aktivierung
         self.equalizer_enabled = True
         
@@ -51,7 +50,7 @@ class SimplexRepeater:
         self.last_gui_update_time = 0
         
         # Equalizer-Einstellungen (5 Bänder)
-        self.eq_bands = [60, 230, 910, 3600, 14000]  # Mittelpunkte in Hz
+        self.eq_bands = [150, 500, 1000, 2000, 4000, 6000, 8000, 10000]  # Mittelpunkte in Hz
         self.eq_gains = {}  # Dictionary für Gain-Werte (dB)
         for band in self.eq_bands:
             self.eq_gains[band] = tk.DoubleVar(value=0.0)
@@ -80,17 +79,110 @@ class SimplexRepeater:
         # Thread für Audio-Verarbeitung
         self.audio_thread = None
         
+        # Equalizer-Filter-Zustände (für kontinuierliche Verarbeitung ohne Knacksen)
+        self.eq_filter_states = {}
+        self.eq_filter_sos = {}
+        self._init_equalizer_filters()
+        
+    def _init_equalizer_filters(self):
+        """Initialisiert die Peaking-EQ-Filter für den Equalizer"""
+        # Nyquist-Frequenz
+        nyquist = self.RATE / 2.0
+        
+        for band in self.eq_bands:
+            # Überspringe Bänder über Nyquist-Frequenz
+            if band >= nyquist * 0.95:  # Sicherheitsabstand von 5%
+                print(f"Warnung: EQ-Band {band}Hz übersprungen (über Nyquist-Frequenz {nyquist}Hz)")
+                self.eq_filter_states[band] = None
+                self.eq_filter_sos[band] = None
+                continue
+            
+            # Initialer Zustand für sosfilt mit 1 Section: Form (1, 2)
+            self.eq_filter_states[band] = np.zeros((1, 2))
+            # Erstelle initiale SOS-Koeffizienten (Bypass-Filter bei 0 dB)
+            self._update_peaking_filter(band, 0.0)
+    
+    def _update_peaking_filter(self, freq, gain_db):
+        """Erstellt einen Peaking-EQ-Filter als Second-Order Section
+        
+        Verwendet Audio EQ Cookbook Formeln mit korrekter Implementierung
+        """
+        # Übersprüfe Nyquist-Frequenz
+        nyquist = self.RATE / 2.0
+        if freq >= nyquist * 0.95:
+            # Filter deaktivieren für zu hohe Frequenzen
+            self.eq_filter_sos[freq] = None
+            return
+        
+        # Wenn Gain nahe 0, verwende Bypass-Filter
+        if abs(gain_db) < 0.01:
+            # Bypass: y = x (Koeffizienten: [b0, b1, b2, a0, a1, a2])
+            self.eq_filter_sos[freq] = np.array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]])
+            return
+        
+        try:
+            # Q-Faktor für etwa 1 Oktave Bandbreite
+            Q = 1.41
+            
+            # Normalisierte Frequenz (0 bis pi)
+            w0 = 2.0 * np.pi * freq / self.RATE
+            
+            # Sicherheitsprüfung
+            if w0 <= 0 or w0 >= np.pi:
+                raise ValueError(f"w0 außerhalb gültigem Bereich: {w0}")
+            
+            cos_w0 = np.cos(w0)
+            sin_w0 = np.sin(w0)
+            alpha = sin_w0 / (2.0 * Q)
+            
+            # Amplitude (Gain-Faktor)
+            A = 10.0 ** (gain_db / 40.0)  # /40 für Peaking EQ (nicht /20)
+            
+            # Biquad-Koeffizienten für Peaking EQ (Audio EQ Cookbook)
+            b0 = 1.0 + alpha * A
+            b1 = -2.0 * cos_w0
+            b2 = 1.0 - alpha * A
+            a0 = 1.0 + alpha / A
+            a1 = -2.0 * cos_w0
+            a2 = 1.0 - alpha / A
+            
+            # Normalisiere auf a0=1 und erstelle SOS-Array
+            sos = np.array([[
+                b0/a0, b1/a0, b2/a0, 
+                1.0, a1/a0, a2/a0
+            ]])
+            
+            # Prüfe auf ungültige Werte
+            if np.any(np.isnan(sos)) or np.any(np.isinf(sos)):
+                raise ValueError("Ungültige Filterkoeffizienten (NaN/Inf)")
+            
+            # Stabilitätsprüfung: Pole müssen innerhalb des Einheitskreises liegen
+            # Für Biquad: Stabilität wenn |a1/2| < 1 und |a2| < 1
+            if abs(a1/a0/2.0) >= 1.0 or abs(a2/a0) >= 1.0:
+                raise ValueError("Instabiler Filter (Pole außerhalb Einheitskreis)")
+            
+            self.eq_filter_sos[freq] = sos
+            
+        except Exception as e:
+            print(f"Fehler beim Erstellen des Filters für {freq}Hz: {e}")
+            # Fallback: Bypass-Filter
+            self.eq_filter_sos[freq] = np.array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]])
+    
     def apply_equalizer(self, audio_data):
-        """Wendet den Equalizer auf Audio-Daten an"""
+        """Wendet den Equalizer auf Audio-Daten an
+        
+        Verwendet scipy.signal.sosfilt für stabile, kontinuierliche Filterung
+        ohne numerische Instabilitäten oder Artefakte.
+        """
         # Früh-Ausstieg wenn Equalizer deaktiviert ist
         if not self.equalizer_enabled:
             return audio_data
         
         # Konvertiere bytes zu numpy array wenn nötig
         if isinstance(audio_data, bytes):
-            audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
+            audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float64)
         else:
-            audio_np = audio_data.astype(np.float32)
+            audio_np = audio_data.astype(np.float64)
         
         # Prüfe ob alle Gains auf 0 sind
         all_zero = all(self.eq_gains[band].get() == 0.0 for band in self.eq_bands)
@@ -101,73 +193,62 @@ class SimplexRepeater:
             else:
                 return np.clip(audio_np, -32768, 32767).astype(np.int16).tobytes()
         
-        # Nyquist-Frequenz
-        nyquist = 0.5 * self.RATE
+        # Starte mit Originalsignal
+        filtered = audio_np.copy()
         
-        # Gefilterte Ausgabe initialisieren
-        filtered = np.zeros_like(audio_np)
-        
-        # Für jedes Band einen Bandpass-Filter erstellen und anwenden
-        order = 4
-        for i, center_freq in enumerate(self.eq_bands):
-            gain_db = self.eq_gains[center_freq].get()
+        # Wende jeden EQ-Band kaskadiert an (in Serie)
+        for band in self.eq_bands:
+            # Überspringe deaktivierte Bänder (über Nyquist)
+            if self.eq_filter_sos[band] is None:
+                continue
             
-            # Berechne Bandbreite (etwa eine Oktave)
-            if i == 0:
-                # Erstes Band: Tiefpass bis zur Mitte zwischen diesem und nächstem Band
-                f_low = 20
-                f_high = (center_freq + self.eq_bands[i+1]) / 2 if i < len(self.eq_bands)-1 else center_freq * 1.5
-            elif i == len(self.eq_bands) - 1:
-                # Letztes Band: Hochpass von Mitte zwischen vorherigem und diesem Band
-                f_low = (self.eq_bands[i-1] + center_freq) / 2
-                f_high = min(center_freq * 1.5, nyquist * 0.99)
-            else:
-                # Mittlere Bänder: Bandpass
-                f_low = (self.eq_bands[i-1] + center_freq) / 2
-                f_high = (center_freq + self.eq_bands[i+1]) / 2
+            gain_db = self.eq_gains[band].get()
             
-            # Normalisiere auf Nyquist-Frequenz
-            low = f_low / nyquist
-            high = f_high / nyquist
+            # Überspringe Bänder mit 0 dB Gain (Optimierung)
+            if abs(gain_db) < 0.1:
+                continue
             
-            # Begrenze auf gültigen Bereich (0, 1)
-            low = max(0.01, min(0.99, low))
-            high = max(0.01, min(0.99, high))
+            # Aktualisiere Filter-Koeffizienten wenn Gain geändert wurde
+            self._update_peaking_filter(band, gain_db)
             
-            if low >= high:
+            # Überspringe wenn Filter deaktiviert wurde
+            if self.eq_filter_sos[band] is None:
                 continue
             
             try:
-                # Erstelle Butterworth-Bandpass-Filter
-                if i == 0:
-                    # Tiefpass für niedrigste Frequenzen
-                    b, a = signal.butter(order, high, btype='lowpass')
-                elif i == len(self.eq_bands) - 1:
-                    # Hochpass für höchste Frequenzen
-                    b, a = signal.butter(order, low, btype='highpass')
-                else:
-                    # Bandpass für mittlere Frequenzen
-                    b, a = signal.butter(order, [low, high], btype='bandpass')
+                # Wende Filter mit Zustandsspeicherung an (verhindert Knacksen)
+                filtered, self.eq_filter_states[band] = signal.sosfilt(
+                    self.eq_filter_sos[band], 
+                    filtered, 
+                    zi=self.eq_filter_states[band]
+                )
                 
-                # Wende Filter an
-                band_filtered = signal.lfilter(b, a, audio_np)
-                
-                # Konvertiere Gain von dB zu linearem Faktor
-                gain_linear = 10.0 ** (gain_db / 20.0)
-                
-                # Addiere gefiltertes und verstärktes Signal
-                filtered += band_filtered * gain_linear
-                
+                # Prüfe auf ungültige Werte nach Filterung
+                if np.any(np.isnan(filtered)) or np.any(np.isinf(filtered)):
+                    print(f"Warnung: Ungültige Werte nach Filter {band}Hz - überspringe")
+                    # Setze auf Original zurück und reset State
+                    filtered = audio_np.copy()
+                    self.eq_filter_states[band] = np.zeros((1, 2))
+                    break
+                    
             except Exception as e:
-                print(f"Fehler bei Equalizer-Band {center_freq}Hz: {e}")
+                print(f"Fehler bei Filter {band}Hz: {e}")
+                # Bei Fehler: Setze Zustand zurück mit korrekter Form (1, 2)
+                self.eq_filter_states[band] = np.zeros((1, 2))
                 continue
         
-        # Normalisiere falls Spitzen auftreten
+        # Sanftes Clipping zur Vermeidung von Verzerrungen
+        # Prüfe auf NaN/Inf vor Clipping
+        if np.any(np.isnan(filtered)) or np.any(np.isinf(filtered)):
+            print("Warnung: Ungültige Werte im EQ - verwende Original")
+            filtered = audio_np.copy()
+        
+        # Normalisiere wenn Signal zu laut
         max_val = np.max(np.abs(filtered))
         if max_val > 32767:
-            filtered = filtered * (32767 / max_val)
+            filtered = filtered * (32000.0 / max_val)  # Lasse etwas Headroom
         
-        # Clipping und Konvertierung
+        # Final Clipping
         filtered = np.clip(filtered, -32768, 32767).astype(np.int16)
         
         if isinstance(audio_data, bytes):
@@ -403,7 +484,7 @@ class SimplexRepeater:
             eq_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
             
             # Slider
-            eq_scale = ttk.Scale(eq_frame, from_=-12.0, to=12.0,
+            eq_scale = ttk.Scale(eq_frame, from_=-30.0, to=30.0,
                                 variable=self.eq_gains[band], orient=tk.HORIZONTAL)
             eq_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
             self.eq_scales[band] = eq_scale

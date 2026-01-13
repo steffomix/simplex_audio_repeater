@@ -233,3 +233,6 @@ Log Ende.
 
 Schritt 23:
 Mit ein paar Handgriffen konnte ich die Performance Probleme im Duplex Modus deutlich reduzieren. Jetzt erst mal wieder zurück zum Simplex Modus. Der Spielt keinen Ton ab und braucht keine Performance Optimierung. Der Levelbalken muss im Simplex Modus auch nicht aktualisiert werden. Bitte behebe das.
+
+Schritt 24:
+Das Programm funktioniert jetzt schon sehr gut im Simplex und im Duplex Modus! Der equalizer braucht jedoch eine komplette Überarbeitung. Schau mal ob du einen besseren Equalizer findest oder programmieren kannst, der in Echtzeit mit niedriger Latenz arbeitet und den du in das Programm integrieren kannst.
