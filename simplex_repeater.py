@@ -47,6 +47,12 @@ class SimplexRepeater:
         self.current_damped_level = 0  # Aktueller gedämpfter Pegel
         self.last_update_time = time.time()  # Zeitpunkt der letzten Pegel-Aktualisierung
         
+        # Performance-Optimierung: Rate-Limiting für GUI-Updates
+        self.last_gui_update_time = 0
+        self.gui_update_interval = 0.3 # 0.05  # Nur alle 50ms GUI updaten (20 FPS)
+        self.pending_level = 0
+        self.gui_update_pending = False
+        
         # Equalizer-Einstellungen (5 Bänder)
         self.eq_bands = [60, 230, 910, 3600, 14000]  # Mittelpunkte in Hz
         self.eq_gains = {}  # Dictionary für Gain-Werte (dB)
@@ -780,7 +786,8 @@ class SimplexRepeater:
         self.status_label.config(text=text, foreground=color)
         
     def update_level(self, level):
-        """Aktualisiert die Pegel-Anzeige mit Attack/Release-Dämpfung"""
+        """Aktualisiert die Pegel-Anzeige mit Attack/Release-Dämpfung
+        Performance-optimiert mit Rate-Limiting"""
         current_time = time.time()
         time_elapsed = current_time - self.last_update_time
         self.last_update_time = current_time
@@ -789,27 +796,34 @@ class SimplexRepeater:
         rise_time_ms = self.rise_time_var.get()
         fall_time_ms = self.fall_time_var.get()
         
-        # Berechne gedämpften Pegel
+        # Berechne gedämpften Pegel (immer berechnen für genaue Trigger-Logik)
         if level > self.current_damped_level:
             # Anstieg
             if rise_time_ms == 0:
-                # Keine Dämpfung: Sofortige Anpassung
                 self.current_damped_level = level
             else:
-                # Dämpfung anwenden
-                # Berechne maximale Änderung basierend auf Zeit und Dämpfung
-                # Je höher rise_time_ms, desto langsamer der Anstieg
                 max_change = (level - self.current_damped_level) * (time_elapsed * 1000 / rise_time_ms)
                 self.current_damped_level = min(self.current_damped_level + max_change, level)
         else:
             # Abfall
             if fall_time_ms == 0:
-                # Keine Dämpfung: Sofortige Anpassung
                 self.current_damped_level = level
             else:
-                # Dämpfung anwenden
                 max_change = (self.current_damped_level - level) * (time_elapsed * 1000 / fall_time_ms)
                 self.current_damped_level = max(self.current_damped_level - max_change, level)
+        
+        # Performance: Nur GUI updaten wenn genug Zeit vergangen ist (Rate-Limiting)
+        self.pending_level = self.current_damped_level
+        if current_time - self.last_gui_update_time >= self.gui_update_interval:
+            self.last_gui_update_time = current_time
+            if not self.gui_update_pending:
+                self.gui_update_pending = True
+                self.root.after_idle(self._update_level_gui)
+    
+    def _update_level_gui(self):
+        """Aktualisiert die GUI für Pegelanzeige (wird nur periodisch aufgerufen)"""
+        self.gui_update_pending = False
+        level = self.pending_level
         
         # Canvas-Darstellung
         canvas_width = self.level_canvas.winfo_width()
@@ -819,22 +833,25 @@ class SimplexRepeater:
         canvas_height = 40
         max_level = 10000  # Maximum des Eingangspegels
         
-        # Berechne Breite des Pegelbalkens (mit gedämpftem Pegel)
-        bar_width = (self.current_damped_level / max_level) * canvas_width
-        bar_width = min(bar_width, canvas_width)  # Nicht über Canvas hinaus
+        # Berechne Breite des Pegelbalkens
+        bar_width = (level / max_level) * canvas_width
+        bar_width = min(bar_width, canvas_width)
         
-        # Lösche alten Balken
+        # Optimierung: Verwende coords() statt delete/create wenn Balken existiert
         if self.level_bar:
-            self.level_canvas.delete(self.level_bar)
-            
-        # Zeichne neuen Balken
-        self.level_bar = self.level_canvas.create_rectangle(
-            0, 0, bar_width, canvas_height,
-            fill='lightgray', outline='', tags='level')
+            try:
+                self.level_canvas.coords(self.level_bar, 0, 0, bar_width, canvas_height)
+            except:
+                # Balken existiert nicht mehr, erstelle neu
+                self.level_bar = None
         
-        # Schwellwert-Linien in den Vordergrund
-        self.level_canvas.tag_raise('start_threshold')
-        self.level_canvas.tag_raise('stop_threshold')
+        if not self.level_bar:
+            self.level_bar = self.level_canvas.create_rectangle(
+                0, 0, bar_width, canvas_height,
+                fill='lightgray', outline='', tags='level')
+            # Schwellwert-Linien in den Vordergrund (nur beim ersten Mal)
+            self.level_canvas.tag_raise('start_threshold')
+            self.level_canvas.tag_raise('stop_threshold')
         
     def audio_loop(self):
         """Haupt-Audio-Schleife"""
@@ -900,6 +917,7 @@ class SimplexRepeater:
         # Thread für kontinuierliche Aufnahme
         def record_thread():
             """Kontinuierliche Aufnahme ohne Trigger - läuft permanent"""
+            chunk_counter = 0  # Für Rate-Limiting der Pegelanzeige
             while self.running and self.duplex_recording:
                 try:
                     with self.streams_lock:
@@ -907,13 +925,15 @@ class SimplexRepeater:
                             return
                         data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
                     
-                    # Pegel für Anzeige aktualisieren
-                    audio_data = np.frombuffer(data, dtype=np.int16)
-                    level = np.abs(audio_data).mean()
-                    self.root.after(0, self.update_level, level)
-                    
-                    # Sofort zum Wiedergabe-Buffer hinzufügen
+                    # Sofort zum Wiedergabe-Buffer hinzufügen (Performance-kritisch!)
                     self.duplex_playback_buffer.append(data)
+                    
+                    # Performance: Nur jeden 4. Chunk Pegel berechnen und anzeigen
+                    chunk_counter += 1
+                    if chunk_counter % 4 == 0:
+                        audio_data = np.frombuffer(data, dtype=np.int16)
+                        level = np.abs(audio_data).mean()
+                        self.update_level(level)  # Verwendet jetzt Rate-Limiting
                     
                 except Exception as e:
                     print(f"Fehler beim Lesen (Duplex): {e}")
@@ -969,6 +989,8 @@ class SimplexRepeater:
         """Audio-Schleife für Simplex-Modus (klassischer Modus)"""
         # Stille-Puffer für Output (wenn nicht abgespielt wird)
         silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
+        chunk_counter = 0  # Für Rate-Limiting
+        status_update_counter = 0
         
         while self.running:
             # Prüfe ob Streams neu gestartet werden müssen
@@ -998,10 +1020,33 @@ class SimplexRepeater:
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
                 
                 audio_data = np.frombuffer(data, dtype=np.int16)
-                
-                # Pegel berechnen
                 level = np.abs(audio_data).mean()
-                self.root.after(0, self.update_level, level)
+                
+                # Performance: Nur jeden 3. Chunk GUI updaten
+                chunk_counter += 1
+                if chunk_counter % 3 == 0:
+                    self.update_level(level)  # Verwendet Rate-Limiting
+                else:
+                    # Dämpfung trotzdem berechnen für Trigger-Logik
+                    current_time = time.time()
+                    time_elapsed = current_time - self.last_update_time
+                    self.last_update_time = current_time
+                    
+                    rise_time_ms = self.rise_time_var.get()
+                    fall_time_ms = self.fall_time_var.get()
+                    
+                    if level > self.current_damped_level:
+                        if rise_time_ms == 0:
+                            self.current_damped_level = level
+                        else:
+                            max_change = (level - self.current_damped_level) * (time_elapsed * 1000 / rise_time_ms)
+                            self.current_damped_level = min(self.current_damped_level + max_change, level)
+                    else:
+                        if fall_time_ms == 0:
+                            self.current_damped_level = level
+                        else:
+                            max_change = (self.current_damped_level - level) * (time_elapsed * 1000 / fall_time_ms)
+                            self.current_damped_level = max(self.current_damped_level - max_change, level)
                 
                 # Wenn nicht gerade abgespielt wird und nicht aufgenommen wird
                 if not self.is_playing and not self.is_recording:
@@ -1013,10 +1058,12 @@ class SimplexRepeater:
                     # Prüfe ob wir noch in Totzeit sind
                     current_time = time.time()
                     if current_time < self.dead_time_end:
-                        # Noch in Totzeit
-                        remaining = self.dead_time_end - current_time
-                        self.root.after(0, self.update_status, 
-                                      f"Totzeit: {remaining:.1f}s verbleibend", 'orange')
+                        # Noch in Totzeit - Status nur alle 10 Chunks updaten
+                        status_update_counter += 1
+                        if status_update_counter % 10 == 0:
+                            remaining = self.dead_time_end - current_time
+                            self.root.after(0, self.update_status, 
+                                          f"Totzeit: {remaining:.1f}s verbleibend", 'orange')
                     elif self.current_damped_level > self.start_threshold_var.get():
                         # Verwende gedämpften Pegel für Trigger
                         self.start_recording()
@@ -1053,14 +1100,16 @@ class SimplexRepeater:
                 self.audio_buffer.append(data)
                 chunk_count += 1
                 
-                # Fortschritt aktualisieren
-                progress_percent = (chunk_count / chunks_to_record) * 100
-                self.root.after(0, self.update_progress, progress_percent)
+                # Fortschritt aktualisieren (nur jeden 5. Chunk für Performance)
+                if chunk_count % 5 == 0 or chunk_count == chunks_to_record:
+                    progress_percent = (chunk_count / chunks_to_record) * 100
+                    self.root.after(0, self.update_progress, progress_percent)
                 
-                # Pegel aktualisieren
-                audio_data = np.frombuffer(data, dtype=np.int16)
-                level = np.abs(audio_data).mean()
-                self.root.after(0, self.update_level, level)
+                # Pegel aktualisieren (nur jeden 3. Chunk)
+                if chunk_count % 3 == 0:
+                    audio_data = np.frombuffer(data, dtype=np.int16)
+                    level = np.abs(audio_data).mean()
+                    self.update_level(level)
                 
                 # Prüfe ob gedämpfter Pegel unter Abbruch-Pegel
                 # Verwende gedämpften Pegel für konsistente Triggerung
@@ -1134,9 +1183,10 @@ class SimplexRepeater:
                 
                 played_chunks += 1
                 
-                # Fortschritt aktualisieren (rückwärts von 100 zu 0)
-                progress_percent = 100 - ((played_chunks / total_chunks) * 100)
-                self.root.after(0, self.update_progress, progress_percent)
+                # Fortschritt aktualisieren (nur jeden 5. Chunk für Performance)
+                if played_chunks % 5 == 0 or played_chunks == total_chunks:
+                    progress_percent = 100 - ((played_chunks / total_chunks) * 100)
+                    self.root.after(0, self.update_progress, progress_percent)
             
         except Exception as e:
             print(f"Fehler bei Wiedergabe: {e}")

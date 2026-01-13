@@ -95,3 +95,6 @@ Es einen Hinweis in der GUI geben, dass höhere Abtastraten die Performance beei
 
 Untersuche ob der Code optimiert werden kann, um die Performance bei höheren Abtastraten zu verbessern, insbesondere wenn der Equalizer aktiviert ist.
 
+Schritt 19:
+Kann es sein dass die Aktualisierung des Pegelbalkens oder Aktualisierungen der GUI generell die Performance der Audioverarbeitung beeinträchtigt? Wenn ja, optimiere die Pegelbalkenaktualisierung oder die GUI generell bitte so dass sie die Audioverarbeitung nicht mehr oder möglichst wenig beeinträchtigt.
+
