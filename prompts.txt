@@ -98,3 +98,140 @@ Untersuche ob der Code optimiert werden kann, um die Performance bei höheren Ab
 Schritt 19:
 Kann es sein dass die Aktualisierung des Pegelbalkens oder Aktualisierungen der GUI generell die Performance der Audioverarbeitung beeinträchtigt? Wenn ja, optimiere die Pegelbalkenaktualisierung oder die GUI generell bitte so dass sie die Audioverarbeitung nicht mehr oder möglichst wenig beeinträchtigt.
 
+
+Schritt 20: Grundsätzlich funktioniert alles einwandfrei. Die GUI wird in nicht mehr bei jedem Loop aktualisiert. Die performance hat sich jedoch eher verschlechtert und ich kann nicht erkennen woran das liegt. Kannst du den Code bitte auf Performance optimieren, insbesondere im Hinblick auf die Audioverarbeitung und die GUI-Aktualisierungen?
+
+
+Schritt 21: Ich habe einen log erstellt, der vielleicht hilft das Problem zu finden:
+Repeater Log Start.
+duplex_playback_buffer 1 removed, length now:   1,       playback time: 2.86102294921875e-06
+duplex_playback_buffer 1 added, length now:   2,         record time: 0.08020830154418945
+duplex_playback_buffer 1 removed, length now:   1,       playback time: 7.152557373046875e-06
+duplex_playback_buffer 1 added, length now:   2,         record time: 0.0855858325958252
+duplex_playback_buffer 1 removed, length now:   1,       playback time: 4.76837158203125e-06
+duplex_playback_buffer 1 added, length now:   2,         record time: 0.00021529197692871094
+duplex_playback_buffer 1 added, length now:   3,         record time: 0.08573412895202637
+duplex_playback_buffer 1 removed, length now:   2,       playback time: 8.106231689453125e-06
+duplex_playback_buffer 1 added, length now:   3,         record time: 8.392333984375e-05
+duplex_playback_buffer 1 added, length now:   4,         record time: 0.0863029956817627
+duplex_playback_buffer 1 removed, length now:   3,       playback time: 5.7220458984375e-06
+duplex_playback_buffer 1 added, length now:   4,         record time: 0.00019240379333496094
+duplex_playback_buffer 1 added, length now:   5,         record time: 0.08603787422180176
+duplex_playback_buffer 1 removed, length now:   4,       playback time: 5.9604644775390625e-06
+duplex_playback_buffer 1 removed, length now:   3,       playback time: 2.6226043701171875e-06
+duplex_playback_buffer 1 removed, length now:   2,       playback time: 1.0728836059570312e-05
+duplex_playback_buffer 1 added, length now:   3,         record time: 0.0511784553527832
+duplex_playback_buffer 1 added, length now:   4,         record time: 1.621246337890625e-05
+duplex_playback_buffer 1 added, length now:   5,         record time: 0.07674407958984375
+duplex_playback_buffer 1 removed, length now:   4,       playback time: 5.4836273193359375e-06
+duplex_playback_buffer 1 added, length now:   5,         record time: 0.08611845970153809
+duplex_playback_buffer 1 removed, length now:   4,       playback time: 7.152557373046875e-06
+duplex_playback_buffer 1 added, length now:   5,         record time: 0.0003414154052734375
+duplex_playback_buffer 1 added, length now:   6,         record time: 0.08580303192138672
+duplex_playback_buffer 1 removed, length now:   5,       playback time: 6.4373016357421875e-06
+duplex_playback_buffer 1 added, length now:   6,         record time: 0.00020313262939453125
+duplex_playback_buffer 1 added, length now:   7,         record time: 0.08585667610168457
+duplex_playback_buffer 1 removed, length now:   6,       playback time: 5.0067901611328125e-06
+duplex_playback_buffer 1 removed, length now:   5,       playback time: 2.6226043701171875e-06
+duplex_playback_buffer 1 removed, length now:   4,       playback time: 1.1205673217773438e-05
+duplex_playback_buffer 1 added, length now:   5,         record time: 0.04778933525085449
+duplex_playback_buffer 1 added, length now:   6,         record time: 1.239776611328125e-05
+duplex_playback_buffer 1 added, length now:   7,         record time: 0.0804588794708252
+duplex_playback_buffer 1 removed, length now:   6,       playback time: 5.7220458984375e-06
+duplex_playback_buffer 1 added, length now:   7,         record time: 0.08583664894104004
+duplex_playback_buffer 1 removed, length now:   6,       playback time: 5.9604644775390625e-06
+duplex_playback_buffer 1 added, length now:   7,         record time: 0.0002200603485107422
+duplex_playback_buffer 1 removed, length now:   6,       playback time: 3.337860107421875e-06
+duplex_playback_buffer 1 added, length now:   7,         record time: 0.08564329147338867
+duplex_playback_buffer 1 removed, length now:   6,       playback time: 4.76837158203125e-06
+duplex_playback_buffer 1 added, length now:   7,         record time: 0.0001232624053955078
+duplex_playback_buffer 1 added, length now:   8,         record time: 0.0855402946472168
+duplex_playback_buffer 1 removed, length now:   7,       playback time: 3.337860107421875e-06
+duplex_playback_buffer 1 removed, length now:   6,       playback time: 1.1920928955078125e-06
+duplex_playback_buffer 1 added, length now:   7,         record time: 1.2636184692382812e-05
+duplex_playback_buffer 1 added, length now:   8,         record time: 0.08533906936645508
+duplex_playback_buffer 1 removed, length now:   7,       playback time: 5.245208740234375e-06
+duplex_playback_buffer 1 added, length now:   8,         record time: 0.00011324882507324219
+duplex_playback_buffer 1 added, length now:   9,         record time: 0.08566713333129883
+duplex_playback_buffer 1 removed, length now:   8,       playback time: 5.245208740234375e-06
+duplex_playback_buffer 1 added, length now:   9,         record time: 0.0002505779266357422
+duplex_playback_buffer 1 added, length now:   10,        record time: 0.0854637622833252
+duplex_playback_buffer 1 removed, length now:   9,       playback time: 5.4836273193359375e-06
+duplex_playback_buffer 1 added, length now:   10,        record time: 0.08551287651062012
+duplex_playback_buffer 1 removed, length now:   9,       playback time: 5.7220458984375e-06
+duplex_playback_buffer 1 added, length now:   10,        record time: 2.3603439331054688e-05
+duplex_playback_buffer 1 removed, length now:   9,       playback time: 1.0728836059570312e-05
+duplex_playback_buffer 1 added, length now:   10,        record time: 0.04278445243835449
+Repeater Log Ende.
+
+Repeater config:
+{
+  "start_threshold": 1000,
+  "stop_threshold": 100,
+  "rise_time": 0.0,
+  "fall_time": 100.0,
+  "record_time": 30.0,
+  "stop_time": 0.5,
+  "dead_time": 2.0,
+  "gain": 0.0,
+  "playback_delay": 0,
+  "equalizer": {
+    "60": 0.0,
+    "230": 0.0,
+    "910": 0.0,
+    "3600": 0.0,
+    "14000": 0.0
+  },
+  "equalizer_enabled": false,
+  "sample_rate": 22000,
+  "duplex_mode": true,
+  "input_device": "8: default",
+  "output_device": "8: default"
+}
+
+Schritt 22:
+Die Zeitmessungen dienten lediglich zum messen der Performance. Ich habe sie herausgenommen um nicht zu verwirren. Der Buffer steigt immer noch an. Vielleicht sollte man den nicht nach Zeit leeren, sondern nach nur soweit um die eingestellte Verzögerungszeit zu erfüllen.
+
+Log Start:
+duplex_playback_buffer 1 removed, length now:   1
+duplex_playback_buffer 1 added, length now:   2
+duplex_playback_buffer 1 removed, length now:   1
+duplex_playback_buffer 1 added, length now:   2
+duplex_playback_buffer 1 removed, length now:   1
+duplex_playback_buffer 1 added, length now:   2
+duplex_playback_buffer 1 added, length now:   3
+duplex_playback_buffer 1 removed, length now:   2
+duplex_playback_buffer 1 added, length now:   3
+duplex_playback_buffer 1 added, length now:   4
+duplex_playback_buffer 1 added, length now:   5
+duplex_playback_buffer 1 removed, length now:   4
+duplex_playback_buffer 1 added, length now:   5
+duplex_playback_buffer 1 removed, length now:   4
+duplex_playback_buffer 1 added, length now:   5
+duplex_playback_buffer 1 removed, length now:   4
+duplex_playback_buffer 1 added, length now:   5
+duplex_playback_buffer 1 added, length now:   6
+duplex_playback_buffer 1 removed, length now:   5
+duplex_playback_buffer 1 added, length now:   6
+duplex_playback_buffer 1 removed, length now:   5
+duplex_playback_buffer 1 added, length now:   6
+duplex_playback_buffer 1 added, length now:   7
+duplex_playback_buffer 1 added, length now:   8
+duplex_playback_buffer 1 added, length now:   9
+duplex_playback_buffer 1 removed, length now:   8
+duplex_playback_buffer 1 added, length now:   9
+duplex_playback_buffer 1 removed, length now:   8
+duplex_playback_buffer 1 added, length now:   9
+duplex_playback_buffer 1 removed, length now:   8
+duplex_playback_buffer 1 added, length now:   9
+duplex_playback_buffer 1 removed, length now:   8
+duplex_playback_buffer 1 added, length now:   9
+duplex_playback_buffer 1 added, length now:   10
+duplex_playback_buffer 1 removed, length now:   9
+duplex_playback_buffer 1 added, length now:   10
+Log Ende.
+
+self.last_gui_update_time = 0
+        self.gui_update_interval = 0.3 # 0.05  # Nur alle 50ms GUI updaten (20 FPS)
+        self.pending_level = 0
+        self.gui_update_pending = False

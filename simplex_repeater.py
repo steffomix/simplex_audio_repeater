@@ -49,9 +49,6 @@ class SimplexRepeater:
         
         # Performance-Optimierung: Rate-Limiting für GUI-Updates
         self.last_gui_update_time = 0
-        self.gui_update_interval = 0.3 # 0.05  # Nur alle 50ms GUI updaten (20 FPS)
-        self.pending_level = 0
-        self.gui_update_pending = False
         
         # Equalizer-Einstellungen (5 Bänder)
         self.eq_bands = [60, 230, 910, 3600, 14000]  # Mittelpunkte in Hz
@@ -545,6 +542,7 @@ class SimplexRepeater:
     def on_playback_delay_change(self, value):
         """Wird aufgerufen wenn sich die Wiedergabeverzögerung ändert"""
         self.playback_delay_ms = int(float(value))
+        self.duplex_target_buffer_size = self.get_duplex_target_buffer_size()
         
     def on_equalizer_toggle(self):
         """Wird aufgerufen wenn Equalizer aktiviert/deaktiviert wird"""
@@ -812,19 +810,10 @@ class SimplexRepeater:
                 max_change = (self.current_damped_level - level) * (time_elapsed * 1000 / fall_time_ms)
                 self.current_damped_level = max(self.current_damped_level - max_change, level)
         
-        # Performance: Nur GUI updaten wenn genug Zeit vergangen ist (Rate-Limiting)
-        self.pending_level = self.current_damped_level
-        if current_time - self.last_gui_update_time >= self.gui_update_interval:
-            self.last_gui_update_time = current_time
-            if not self.gui_update_pending:
-                self.gui_update_pending = True
-                self.root.after_idle(self._update_level_gui)
+        self._update_level_gui(self.current_damped_level)
     
-    def _update_level_gui(self):
+    def _update_level_gui(self, level):
         """Aktualisiert die GUI für Pegelanzeige (wird nur periodisch aufgerufen)"""
-        self.gui_update_pending = False
-        level = self.pending_level
-        
         # Canvas-Darstellung
         canvas_width = self.level_canvas.winfo_width()
         if canvas_width <= 1:
@@ -887,53 +876,56 @@ class SimplexRepeater:
                           f"Audio-Fehler: {str(e)}")
             self.root.after(0, self.stop_repeater)
     
+    def get_duplex_target_buffer_size(self):
+        """Berechnet die Zielgröße des Duplex-Wiedergabe-Buffers basierend auf der Verzögerung"""
+        delay_ms = self.playback_delay_var.get()
+        delay_chunks = int((delay_ms / 1000.0) * self.RATE / self.CHUNK)
+        delay_chunks = max(2, delay_chunks)
+        return delay_chunks
+
     def audio_loop_duplex(self):
         """Audio-Schleife für Duplex-Modus (gleichzeitig aufnehmen und abspielen)
         Kontinuierliches Streaming ohne Trigger-Logik mit konstanter Verzögerung
         """
         # Ring-Buffer für verzögertes Wiedergabe-Streaming
-        # Größe basierend auf Verzögerungszeit berechnen
-        delay_ms = self.playback_delay_var.get()
-        delay_chunks = int((delay_ms / 1000.0) * self.RATE / self.CHUNK)
-        
-        # Mindestens 2 Chunks für flüssiges Streaming
-        delay_chunks = max(2, delay_chunks)
         
         # WICHTIG: Kein maxlen - wir wollen einen konstanten Puffer für permanente Verzögerung
         self.duplex_playback_buffer = deque()
         self.duplex_recording = True
-        self.duplex_target_buffer_size = delay_chunks
+        self.duplex_target_buffer_size = self.get_duplex_target_buffer_size()
         
         # Stille für initialen Buffer
         silence = np.zeros(self.CHUNK, dtype=np.int16).tobytes()
         
         # Fülle Buffer initial mit Verzögerung
-        for _ in range(delay_chunks):
+        for _ in range(self.duplex_target_buffer_size):
             self.duplex_playback_buffer.append(silence)
         
         self.root.after(0, self.update_status, 
-                       f"Duplex: Aktiv ({delay_ms}ms Verzögerung)", 'green')
+                       f"Duplex: Aktiv ({self.playback_delay_var.get()}ms Verzögerung)", 'green')
         
         # Thread für kontinuierliche Aufnahme
         def record_thread():
             """Kontinuierliche Aufnahme ohne Trigger - läuft permanent"""
             chunk_counter = 0  # Für Rate-Limiting der Pegelanzeige
+            
             while self.running and self.duplex_recording:
+                
                 try:
-                    with self.streams_lock:
-                        if self.stream_in is None:
-                            return
-                        data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                    # Aufnahme
+                    data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+
+                    # Verstärkung anwenden
+                    data = self.apply_gain(data)
+                    
+                    # Equalizer anwenden (wird übersprungen wenn deaktiviert)
+                    data = self.apply_equalizer(data)
                     
                     # Sofort zum Wiedergabe-Buffer hinzufügen (Performance-kritisch!)
                     self.duplex_playback_buffer.append(data)
-                    
-                    # Performance: Nur jeden 4. Chunk Pegel berechnen und anzeigen
-                    chunk_counter += 1
-                    if chunk_counter % 4 == 0:
-                        audio_data = np.frombuffer(data, dtype=np.int16)
-                        level = np.abs(audio_data).mean()
-                        self.update_level(level)  # Verwendet jetzt Rate-Limiting
+
+                    level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
+                    self._update_level_gui(level)
                     
                 except Exception as e:
                     print(f"Fehler beim Lesen (Duplex): {e}")
@@ -944,38 +936,36 @@ class SimplexRepeater:
             """Kontinuierliche Wiedergabe aus Buffer mit konstanter Verzögerung"""
             # Warte bis Buffer gefüllt ist
             while len(self.duplex_playback_buffer) < self.duplex_target_buffer_size and self.running:
-                time.sleep(0.001)
+                time.sleep(0.01)
             
             while self.running:
                 try:
-                    # Warte bis genug Daten im Buffer sind (hält konstante Verzögerung)
+                    # Spiele ab, sobald mindestens die Ziel-Verzögerung erreicht ist
                     if len(self.duplex_playback_buffer) >= self.duplex_target_buffer_size:
-                        # Hole ältesten Chunk aus Buffer
+                        
+                        # Hole Daten aus dem Buffer 
                         data = self.duplex_playback_buffer.popleft()
-                        
-                        # Verstärkung anwenden
-                        data = self.apply_gain(data)
-                        
-                        # Equalizer anwenden (wird übersprungen wenn deaktiviert)
-                        data = self.apply_equalizer(data)
-                        
-                        with self.streams_lock:
-                            if self.stream_out:
-                                self.stream_out.write(data)
+                        while len(self.duplex_playback_buffer) >= self.duplex_target_buffer_size:
+                             data += self.duplex_playback_buffer.popleft()
+
+                        self.stream_out.write(data)
                     else:
-                        # Buffer zu klein, warte auf mehr Daten
+                        # Buffer leer, warte kurz
                         time.sleep(0.001)
                         
                 except Exception as e:
                     print(f"Fehler bei Wiedergabe (Duplex): {e}")
                     time.sleep(0.001)
+            
+            self.duplex_playback_buffer.clear()
         
+
         # Starte beide Threads
-        record_t = threading.Thread(target=record_thread, daemon=True)
         playback_t = threading.Thread(target=playback_thread, daemon=True)
+        record_t = threading.Thread(target=record_thread, daemon=True)
         
-        record_t.start()
         playback_t.start()
+        record_t.start()
         
         # Warte auf Beendigung
         while self.running:
@@ -1019,34 +1009,9 @@ class SimplexRepeater:
                         break
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
                 
-                audio_data = np.frombuffer(data, dtype=np.int16)
-                level = np.abs(audio_data).mean()
-                
-                # Performance: Nur jeden 3. Chunk GUI updaten
-                chunk_counter += 1
-                if chunk_counter % 3 == 0:
-                    self.update_level(level)  # Verwendet Rate-Limiting
-                else:
-                    # Dämpfung trotzdem berechnen für Trigger-Logik
-                    current_time = time.time()
-                    time_elapsed = current_time - self.last_update_time
-                    self.last_update_time = current_time
-                    
-                    rise_time_ms = self.rise_time_var.get()
-                    fall_time_ms = self.fall_time_var.get()
-                    
-                    if level > self.current_damped_level:
-                        if rise_time_ms == 0:
-                            self.current_damped_level = level
-                        else:
-                            max_change = (level - self.current_damped_level) * (time_elapsed * 1000 / rise_time_ms)
-                            self.current_damped_level = min(self.current_damped_level + max_change, level)
-                    else:
-                        if fall_time_ms == 0:
-                            self.current_damped_level = level
-                        else:
-                            max_change = (self.current_damped_level - level) * (time_elapsed * 1000 / fall_time_ms)
-                            self.current_damped_level = max(self.current_damped_level - max_change, level)
+                # Pegel aktualisieren (nur jeden 6. Chunk für Performance)
+                level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
+                self.update_level(level)
                 
                 # Wenn nicht gerade abgespielt wird und nicht aufgenommen wird
                 if not self.is_playing and not self.is_recording:
@@ -1058,9 +1023,10 @@ class SimplexRepeater:
                     # Prüfe ob wir noch in Totzeit sind
                     current_time = time.time()
                     if current_time < self.dead_time_end:
-                        # Noch in Totzeit - Status nur alle 10 Chunks updaten
+                        # Noch in Totzeit - Status nur alle 20 Chunks updaten
                         status_update_counter += 1
-                        if status_update_counter % 10 == 0:
+                        if status_update_counter >= 20:
+                            status_update_counter = 0
                             remaining = self.dead_time_end - current_time
                             self.root.after(0, self.update_status, 
                                           f"Totzeit: {remaining:.1f}s verbleibend", 'orange')
@@ -1100,15 +1066,14 @@ class SimplexRepeater:
                 self.audio_buffer.append(data)
                 chunk_count += 1
                 
-                # Fortschritt aktualisieren (nur jeden 5. Chunk für Performance)
-                if chunk_count % 5 == 0 or chunk_count == chunks_to_record:
+                # Fortschritt aktualisieren (nur jeden 8. Chunk für Performance)
+                if chunk_count % 8 == 0 or chunk_count == chunks_to_record:
                     progress_percent = (chunk_count / chunks_to_record) * 100
                     self.root.after(0, self.update_progress, progress_percent)
                 
-                # Pegel aktualisieren (nur jeden 3. Chunk)
-                if chunk_count % 3 == 0:
-                    audio_data = np.frombuffer(data, dtype=np.int16)
-                    level = np.abs(audio_data).mean()
+                # Pegel aktualisieren (nur jeden 6. Chunk)
+                if chunk_count % 6 == 0:
+                    level = np.abs(np.frombuffer(data, dtype=np.int16)).mean()
                     self.update_level(level)
                 
                 # Prüfe ob gedämpfter Pegel unter Abbruch-Pegel
@@ -1183,8 +1148,8 @@ class SimplexRepeater:
                 
                 played_chunks += 1
                 
-                # Fortschritt aktualisieren (nur jeden 5. Chunk für Performance)
-                if played_chunks % 5 == 0 or played_chunks == total_chunks:
+                # Fortschritt aktualisieren (nur jeden 8. Chunk für Performance)
+                if played_chunks % 8 == 0 or played_chunks == total_chunks:
                     progress_percent = 100 - ((played_chunks / total_chunks) * 100)
                     self.root.after(0, self.update_progress, progress_percent)
             
