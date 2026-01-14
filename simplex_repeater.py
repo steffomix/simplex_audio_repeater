@@ -44,6 +44,9 @@ class SimplexRepeater:
         # Modus (simplex oder duplex)
         self.is_duplex_mode = False
         
+        # Monitoring-Status (für Simplex-Modus)
+        self.monitoring_enabled = False
+        
         # Status
         self.running = False
         self.is_recording = False
@@ -57,7 +60,7 @@ class SimplexRepeater:
         self.last_gui_update_time = 0
         
         # Equalizer-Einstellungen (5 Bänder)
-        self.eq_bands = [150, 500, 1000, 2000, 4000, 6000, 8000, 10000]  # Mittelpunkte in Hz
+        self.eq_bands = [150, 1000, 3000, 6000, 9000, 12000]  # Mittelpunkte in Hz
         self.eq_gains = {}  # Dictionary für Gain-Werte (dB)
         for band in self.eq_bands:
             self.eq_gains[band] = tk.DoubleVar(value=0.0)
@@ -144,11 +147,11 @@ class SimplexRepeater:
         
         for band in self.eq_bands:
             # Überspringe Bänder über Nyquist-Frequenz
-            if band >= nyquist * 0.95:  # Sicherheitsabstand von 5%
-                print(f"Warnung: EQ-Band {band}Hz übersprungen (über Nyquist-Frequenz {nyquist}Hz)")
-                self.eq_filter_states[band] = None
-                self.eq_filter_sos[band] = None
-                continue
+            # if band >= nyquist * 0.95:  # Sicherheitsabstand von 5%
+            #     print(f"Warnung: EQ-Band {band}Hz übersprungen (über Nyquist-Frequenz {nyquist}Hz)")
+            #     self.eq_filter_states[band] = None
+            #     self.eq_filter_sos[band] = None
+            #     continue
             
             # Initialer Zustand für sosfilt mit 1 Section: Form (1, 2)
             self.eq_filter_states[band] = np.zeros((1, 2))
@@ -413,10 +416,24 @@ class SimplexRepeater:
         
         # === LINKE SPALTE (INPUT) ===
         row_left = 0
+
+        # Audio-Quelle Auswahl
+        ttk.Label(left_frame, text="Audioeinstellungen:", font=('Arial', 11, 'bold')).grid(
+            row=row_left, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        
+        row_left += 1
+        ttk.Label(left_frame, text="Audio-Eingabe:").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
+        self.input_device_var = tk.StringVar()
+        self.input_device_combo = ttk.Combobox(left_frame, textvariable=self.input_device_var,
+                                              state='readonly', width=25)
+        self.input_device_combo.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.input_device_combo.bind('<<ComboboxSelected>>', self.on_input_device_changed)
         
         # Titel Pegeleinstellungen
+        row_left += 1
         ttk.Label(left_frame, text="Pegeleinstellungen:", font=('Arial', 11, 'bold')).grid(
-            row=row_left, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+            row=row_left, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
         
         # Eingangspegel-Einstellung (Start Threshold)
         row_left += 1
@@ -446,6 +463,14 @@ class SimplexRepeater:
         self.stop_threshold_label = ttk.Label(stop_threshold_frame, text="100")
         self.stop_threshold_label.pack(side=tk.LEFT, padx=5)
         self.stop_threshold_var.trace('w', self.update_stop_threshold_label)
+
+        # Monitoring aktivieren (Checkbox)
+        row_left += 1
+        self.monitoring_var = tk.BooleanVar(value=False)
+        self.monitoring_checkbox = ttk.Checkbutton(left_frame, text="Simplex Monitoring aktivieren (Duplex-Modus)",
+                                                    variable=self.monitoring_var,
+                                                    command=self.on_monitoring_toggle)
+        self.monitoring_checkbox.grid(row=row_left, column=0, columnspan=2, sticky=tk.W, pady=5)
         
         # Canvas für Pegelanzeige
         row_left += 1
@@ -457,7 +482,7 @@ class SimplexRepeater:
         self.level_bar = None
         self.threshold_line = None
         self.stop_threshold_line = None
-
+        
         # Titel Pegeldämpfung
         row_left += 1
         ttk.Label(left_frame, text="Pegeldämpfung:", font=('Arial', 11, 'bold')).grid(
@@ -538,88 +563,12 @@ class SimplexRepeater:
         self.dead_time_label.pack(side=tk.LEFT, padx=5)
         self.dead_time_var.trace('w', self.update_dead_time_label)
         
-        # Wiedergabeverzögerung-Einstellung (nur im Duplex-Modus relevant)
-        row_left += 1
-        ttk.Label(left_frame, text="Wiedergabeverzögerung:").grid(
-            row=row_left, column=0, sticky=tk.W, pady=5)
-        playback_delay_frame = ttk.Frame(left_frame)
-        playback_delay_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
-        self.playback_delay_var = tk.IntVar(value=0)
-        self.playback_delay_scale = ttk.Scale(playback_delay_frame, from_=0, to=1000,
-                                        variable=self.playback_delay_var, orient=tk.HORIZONTAL,
-                                        command=self.on_playback_delay_change)
-        self.playback_delay_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.playback_delay_label = ttk.Label(playback_delay_frame, text="0 ms")
-        self.playback_delay_label.pack(side=tk.LEFT, padx=5)
-        self.playback_delay_var.trace('w', self.update_playback_delay_label)
-
-        # Audio-Quelle Auswahl
-        row_left += 1
-        ttk.Label(left_frame, text="Audioeinstellungen:", font=('Arial', 11, 'bold')).grid(
-            row=row_left, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
-        
-        row_left += 1
-        ttk.Label(left_frame, text="Audio-Eingabe:").grid(
-            row=row_left, column=0, sticky=tk.W, pady=5)
-        self.input_device_var = tk.StringVar()
-        self.input_device_combo = ttk.Combobox(left_frame, textvariable=self.input_device_var,
-                                              state='readonly', width=25)
-        self.input_device_combo.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
-        self.input_device_combo.bind('<<ComboboxSelected>>', self.on_input_device_changed)
-        
         # === RECHTE SPALTE (OUTPUT) ===
         row_right = 0
-        
-        # Titel Equalizer
-        ttk.Label(right_frame, text="Equalizer:", font=('Arial', 11, 'bold')).grid(
-            row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
-        
-        # Equalizer Aktivieren/Deaktivieren
-        row_right += 1
-        self.equalizer_enabled_var = tk.BooleanVar(value=True)
-        self.equalizer_checkbox = ttk.Checkbutton(right_frame, text="Equalizer aktivieren",
-                                                   variable=self.equalizer_enabled_var,
-                                                   command=self.on_equalizer_toggle)
-        self.equalizer_checkbox.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=5)
-        
-        # Equalizer-Bänder (5 Bänder)
-        self.eq_scales = {}
-        self.eq_labels = {}
-        
-        for band in self.eq_bands:
-            row_right += 1
-            
-            # Band-Label
-            if band < 1000:
-                label_text = f"{band} Hz:"
-            else:
-                label_text = f"{band/1000:.1f} kHz:"
-            
-            ttk.Label(right_frame, text=label_text).grid(
-                row=row_right, column=0, sticky=tk.W, pady=5)
-            
-            # Slider-Frame
-            eq_frame = ttk.Frame(right_frame)
-            eq_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
-            
-            # Slider
-            eq_scale = ttk.Scale(eq_frame, from_=-30.0, to=30.0,
-                                variable=self.eq_gains[band], orient=tk.HORIZONTAL)
-            eq_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            self.eq_scales[band] = eq_scale
-            
-            # Label für aktuellen Wert
-            eq_label = ttk.Label(eq_frame, text="0.0 dB")
-            eq_label.pack(side=tk.LEFT, padx=5)
-            self.eq_labels[band] = eq_label
-            
-            # Trace für Label-Update
-            self.eq_gains[band].trace('w', lambda *args, b=band: self.update_eq_label(b))
-        
+
         # Titel Audioeinstellungen
-        row_right += 1
         ttk.Label(right_frame, text="Audioeinstellungen:", font=('Arial', 11, 'bold')).grid(
-            row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
+            row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
         
         # Audio-Ausgabe Auswahl
         row_right += 1
@@ -655,10 +604,40 @@ class SimplexRepeater:
                              justify=tk.LEFT)
         perf_hint.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
         
+        # Wiedergabeverzögerung-Einstellung (nur im Duplex-Modus relevant)
+        row_right += 1
+        ttk.Label(right_frame, text="Wiedergabeverzögerung:").grid(
+            row=row_right, column=0, sticky=tk.W, pady=5)
+        playback_delay_frame = ttk.Frame(right_frame)
+        playback_delay_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.playback_delay_var = tk.IntVar(value=0)
+        self.playback_delay_scale = ttk.Scale(playback_delay_frame, from_=0, to=1000,
+                                        variable=self.playback_delay_var, orient=tk.HORIZONTAL,
+                                        command=self.on_playback_delay_change)
+        self.playback_delay_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.playback_delay_label = ttk.Label(playback_delay_frame, text="0 ms")
+        self.playback_delay_label.pack(side=tk.LEFT, padx=5)
+        self.playback_delay_var.trace('w', self.update_playback_delay_label)
+        
+        # Titel Equalizer
+        row_right += 1
+        ttk.Label(right_frame, text="Equalizer:", font=('Arial', 11, 'bold')).grid(
+            row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
+        
+        # Equalizer Aktivieren/Deaktivieren
+        row_right += 1
+        self.equalizer_enabled_var = tk.BooleanVar(value=True)
+        self.equalizer_checkbox = ttk.Checkbutton(right_frame, text="Equalizer aktivieren",
+                                                   variable=self.equalizer_enabled_var,
+                                                   command=self.on_equalizer_toggle)
+        self.equalizer_checkbox.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=5)
+
+        
         # Verstärkungsfaktor-Einstellung
         row_right += 1
-        ttk.Label(right_frame, text="Wiedergabeverstärkung:").grid(
+        ttk.Label(right_frame, text="Master:").grid(
             row=row_right, column=0, sticky=tk.W, pady=5)
+        
         gain_frame = ttk.Frame(right_frame)
         gain_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
         self.gain_var = tk.DoubleVar(value=0.0)
@@ -668,6 +647,41 @@ class SimplexRepeater:
         self.gain_label = ttk.Label(gain_frame, text="0.0 dB")
         self.gain_label.pack(side=tk.LEFT, padx=5)
         self.gain_var.trace('w', self.update_gain_label)
+        
+        # Equalizer-Bänder (5 Bänder)
+        self.eq_scales = {}
+        self.eq_labels = {}
+        
+        for band in self.eq_bands:
+            row_right += 1
+            
+            # Band-Label
+            if band < 1000:
+                label_text = f"{band} Hz:"
+            else:
+                label_text = f"{band/1000:.1f} kHz:"
+            
+            ttk.Label(right_frame, text=label_text).grid(
+                row=row_right, column=0, sticky=tk.W, pady=5)
+            
+            # Slider-Frame
+            eq_frame = ttk.Frame(right_frame)
+            eq_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
+            
+            # Slider
+            eq_scale = ttk.Scale(eq_frame, from_=-30.0, to=30.0,
+                                variable=self.eq_gains[band], orient=tk.HORIZONTAL)
+            eq_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            self.eq_scales[band] = eq_scale
+            
+            # Label für aktuellen Wert
+            eq_label = ttk.Label(eq_frame, text="0.0 dB")
+            eq_label.pack(side=tk.LEFT, padx=5)
+            self.eq_labels[band] = eq_label
+            
+            # Trace für Label-Update
+            self.eq_gains[band].trace('w', lambda *args, b=band: self.update_eq_label(b))
+        
         
         # Spalten-Konfiguration
         left_frame.columnconfigure(1, weight=1)
@@ -693,7 +707,7 @@ class SimplexRepeater:
         progress_frame = ttk.Frame(control_frame)
         progress_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(progress_frame, text="Aufnahme/Wiedergabe:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(progress_frame, text="Simplex Aufnahme/Wiedergabe:").pack(side=tk.LEFT, padx=5)
         self.progress = ttk.Progressbar(progress_frame, mode='determinate', maximum=100)
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
@@ -751,6 +765,10 @@ class SimplexRepeater:
         state = tk.NORMAL if self.equalizer_enabled else tk.DISABLED
         for band in self.eq_bands:
             self.eq_scales[band].config(state=state)
+
+    def on_monitoring_toggle(self):
+        """Wird aufgerufen wenn Monitoring aktiviert/deaktiviert wird"""
+        self.monitoring_enabled = self.monitoring_var.get()
     
     def on_sample_rate_changed(self, event=None):
         """Wird aufgerufen wenn Abtastrate geändert wird"""
@@ -935,11 +953,17 @@ class SimplexRepeater:
         """Wird aufgerufen wenn Eingangsquelle geändert wird"""
         if self.running:
             self.restart_streams_flag = True
+            self.stop_repeater()
+            time.sleep(1)  # Kurze Pause um sicherzustellen, dass Streams geschlossen sind
+            self.start_repeater()
     
     def on_output_device_changed(self, event=None):
         """Wird aufgerufen wenn Ausgangsquelle geändert wird"""
         if self.running:
             self.restart_streams_flag = True
+            self.stop_repeater()
+            time.sleep(1)  # Kurze Pause um sicherzustellen, dass Streams geschlossen sind
+            self.start_repeater()
     
     def restart_audio_streams(self):
         """Trennt alte Streams und öffnet neue mit aktuellen Geräten"""
@@ -1031,7 +1055,7 @@ class SimplexRepeater:
         self.running = True
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
-        self.update_status("Bereit - Warte auf Signal...", 'green')
+        self.update_status("Simplex Bereit - Warte auf überschreiten des Startpegels...", 'green')
         
         # Audio-Thread starten
         self.audio_thread = threading.Thread(target=self.audio_loop, daemon=True)
@@ -1184,18 +1208,9 @@ class SimplexRepeater:
                     self.calculate_delayed_buffer_size()
                     while len(self.delayed_playback_buffer) > self.delayed_playback_buffer_size:
                         time.sleep(0.001)
-
+                        
                     # Aufnahme
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
-
-                    # Verstärkung anwenden
-                    data = self.apply_gain(data)
-                    
-                    # Equalizer anwenden (wird übersprungen wenn deaktiviert)
-                    data = self.apply_equalizer(data)
-                    
-                    # Konvertiere Kanäle falls nötig (z.B. Stereo-Input zu Mono-Output)
-                    data = self.convert_channels(data, self.input_channels, self.output_channels)
                     
                     # Sofort zum Wiedergabe-Buffer hinzufügen (Performance-kritisch!)
                     self.delayed_playback_buffer.append(data)
@@ -1219,13 +1234,24 @@ class SimplexRepeater:
 
                     # Spiele ab, sobald mindestens die Ziel-Verzögerung erreicht ist
                     if len(self.delayed_playback_buffer) >= self.delayed_playback_buffer_size:
+                        with self.streams_lock:
+                            if self.stream_out is None:
+                                break
+                            # Hole Daten aus dem Buffer 
+                            data = self.delayed_playback_buffer.popleft()
+                            while len(self.delayed_playback_buffer) >= self.delayed_playback_buffer_size:
+                                data += self.delayed_playback_buffer.popleft()
                         
-                        # Hole Daten aus dem Buffer 
-                        data = self.delayed_playback_buffer.popleft()
-                        while len(self.delayed_playback_buffer) >= self.delayed_playback_buffer_size:
-                             data += self.delayed_playback_buffer.popleft()
+                            # Equalizer anwenden (wird übersprungen wenn deaktiviert)
+                            data = self.apply_equalizer(data)
 
-                        self.stream_out.write(data)
+                            # Verstärkung anwenden
+                            data = self.apply_gain(data)
+
+                            # Konvertiere Kanäle falls nötig (z.B. Stereo-Input zu Mono-Output)
+                            data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
+
+                            self.stream_out.write(data_for_output)
                     else:
                         # Buffer leer, warte kurz
                         time.sleep(0.001)
@@ -1251,11 +1277,64 @@ class SimplexRepeater:
         self.duplex_recording = False
         record_t.join(timeout=1.0)
         playback_t.join(timeout=1.0)
+        
+        # Buffer leeren
+        self.delayed_playback_buffer.clear()
     
     def audio_loop_simplex(self):
         """Audio-Schleife für Simplex-Modus (klassischer Modus)"""
         
+        # Ring-Buffer für verzögerte Wiedergabe (verhindert Rückkopplungen)
         self.delayed_playback_buffer = deque()
+        self.calculate_delayed_buffer_size()
+        
+        # Stille für initialen Buffer (nutzt output_channels für Wiedergabe)
+        silence = np.zeros(self.CHUNK * self.output_channels, dtype=np.int16).tobytes()
+        
+        # Fülle Buffer initial mit Verzögerung
+        for _ in range(self.delayed_playback_buffer_size):
+            self.delayed_playback_buffer.append(silence)
+        
+        # Thread für kontinuierliche Wiedergabe aus Buffer
+        self.simplex_playback_running = True
+        
+        def simplex_playback_thread():
+            """Kontinuierliche Wiedergabe aus verzögertem Buffer (für Monitoring und Aufnahme)"""
+            # Warte bis Buffer gefüllt ist
+            while len(self.delayed_playback_buffer) < self.delayed_playback_buffer_size and self.running:
+                time.sleep(0.01)
+            
+            while self.running and self.simplex_playback_running:
+                try:
+                    # Spiele nur wenn Monitoring aktiviert ist, NICHT während Wiedergabe einer Aufnahme
+                    if self.monitoring_enabled and not self.is_playing and len(self.delayed_playback_buffer) >= self.delayed_playback_buffer_size:
+                        # Hole Daten aus dem Buffer
+                        data = self.delayed_playback_buffer.popleft()
+                        # Entferne überschüssige Daten um Buffer-Größe konstant zu halten
+                        while len(self.delayed_playback_buffer) >= self.delayed_playback_buffer_size:
+                            data += self.delayed_playback_buffer.popleft()
+
+                        # Equalizer anwenden (wird übersprungen wenn deaktiviert)
+                        data = self.apply_equalizer(data)
+
+                        # Verstärkung anwenden
+                        data = self.apply_gain(data)
+                        
+                        # Konvertiere Kanäle falls nötig für Wiedergabe
+                        data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
+
+                        self.stream_out.write(data_for_output)
+                    else:
+                        # Monitoring deaktiviert, Wiedergabe läuft oder Buffer leer
+                        time.sleep(0.001)
+                        
+                except Exception as e:
+                    print(f"Fehler bei verzögerter Wiedergabe (Simplex): {e}")
+                    time.sleep(0.001)
+        
+        # Starte Wiedergabe-Thread
+        playback_t = threading.Thread(target=simplex_playback_thread, daemon=True)
+        playback_t.start()
 
         while self.running:
             # Prüfe ob Streams neu gestartet werden müssen
@@ -1279,26 +1358,28 @@ class SimplexRepeater:
             
             # Audio-Daten lesen
             try:
+                # Sperre für Stream-Zugriff
                 with self.streams_lock:
                     if self.stream_in is None:
                         break
+
+                    # Aufnahme
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
 
-                    # Verstärkung anwenden
-                    data = self.apply_gain(data)
-
-                    # Equalizer anwenden (wird übersprungen wenn deaktiviert)
-                    data = self.apply_equalizer(data)
-
-                    # Konvertiere Kanäle falls nötig für Wiedergabe
-                    data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
-
-                    # Sofort wieder ausgeben (Monitoring)
-                    self.stream_out.write(data_for_output)
+                    # Füge zum verzögerten Wiedergabe-Buffer hinzu nur wenn Monitoring aktiviert
+                    if self.monitoring_enabled:
+                        # Aktualisiere Buffer-Größe falls Verzögerung geändert wurde
+                        self.calculate_delayed_buffer_size()
+                        # Warte falls Buffer zu voll ist
+                        while len(self.delayed_playback_buffer) > self.delayed_playback_buffer_size + 5:
+                            time.sleep(0.001)
+                        # Konvertiere Kanäle falls nötig für Wiedergabe
+                        data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
+                        self.delayed_playback_buffer.append(data_for_output)
                 
-                # Pegel aktualisieren
-                level = self.calculate_level(data)
-                self.update_level(level)
+                    # Pegel aktualisieren
+                    level = self.calculate_level(data)
+                    self.update_level(level)
                 
                 # Wenn nicht gerade abgespielt wird und nicht aufgenommen wird
                 if not self.is_playing and not self.is_recording:
@@ -1316,6 +1397,13 @@ class SimplexRepeater:
             except Exception as e:
                 print(f"Fehler beim Lesen: {e}")
                 time.sleep(0.01)
+        
+        # Beende Wiedergabe-Thread
+        self.simplex_playback_running = False
+        playback_t.join(timeout=1.0)
+        
+        # Buffer leeren
+        self.delayed_playback_buffer.clear()
             
     def start_recording(self):
         """Startet die Aufnahme"""
@@ -1341,25 +1429,28 @@ class SimplexRepeater:
             chunks_to_record = get_chunks_to_record()
             try:
 
-                if chunk_count >= chunks_to_record:
-                    break
+                with self.streams_lock:
+                    if self.stream_in is None:
+                        break
+                    
+                    if chunk_count >= chunks_to_record:
+                        break
 
-                data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
-                chunk_count += 1
+                    data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                    chunk_count += 1
 
-                # Verstärkung anwenden
-                data = self.apply_gain(data)
+                    self.audio_buffer.append(data)
 
-                # Equalizer anwenden (wird übersprungen wenn deaktiviert)
-                data = self.apply_equalizer(data)
-
-                self.audio_buffer.append(data)
-
-                # Konvertiere Kanäle falls nötig für Wiedergabe
-                data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
-
-                # Sofort wieder ausgeben (Monitoring)
-                self.stream_out.write(data_for_output)
+                    # Füge zum verzögerten Wiedergabe-Buffer hinzu nur wenn Monitoring aktiviert
+                    if self.monitoring_enabled:
+                        # Aktualisiere Buffer-Größe falls Verzögerung geändert wurde
+                        self.calculate_delayed_buffer_size()
+                        # Warte falls Buffer zu voll ist
+                        while len(self.delayed_playback_buffer) > self.delayed_playback_buffer_size + 5:
+                            time.sleep(0.001)
+                        # Konvertiere Kanäle falls nötig für Wiedergabe
+                        data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
+                        self.delayed_playback_buffer.append(data_for_output)
                 
                 
                 progress_percent = (chunk_count / chunks_to_record) * 100
@@ -1426,6 +1517,12 @@ class SimplexRepeater:
             
             while self.audio_buffer and self.running:
                 data = self.audio_buffer.popleft()
+                    
+                # Equalizer anwenden (wird übersprungen wenn deaktiviert)
+                data = self.apply_equalizer(data)
+
+                # Verstärkung anwenden
+                data = self.apply_gain(data)
                 
                 # Konvertiere Kanäle falls nötig für Wiedergabe
                 data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)

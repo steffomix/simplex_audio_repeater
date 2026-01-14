@@ -236,3 +236,9 @@ Mit ein paar Handgriffen konnte ich die Performance Probleme im Duplex Modus deu
 
 Schritt 24:
 Das Programm funktioniert jetzt schon sehr gut im Simplex und im Duplex Modus! Der equalizer braucht jedoch eine komplette Überarbeitung. Schau mal ob du einen besseren Equalizer findest oder programmieren kannst, der in Echtzeit mit niedriger Latenz arbeitet und den du in das Programm integrieren kannst.
+
+Schritt 25:
+Der Duplex Modus verwendet einen delayed playback buffer um die Wiedergabe zu verzögern. Der Simplex Modus soll nun ebenfalls diesen Buffer im Monitoring und während der Aufnahme verwenden um die Wiedergabe zu verzögern und Rückkopplungen zu verhindern. Während des Abspielens einer Aufnahme braucht nicht verzögert zu werden. Bitte füge diese Funktionalität hinzu.
+
+Schritt 26:
+Der Simplex Repeater funktioniert jetzt einwandfrei mit dem delayed playback buffer! Jedoch sollte er nicht permanent aktiv sein, sondern nur wenn der Monitoring Modus aktiviert ist. Bitte füge einen Kontrollkästchen "Monitoring aktivieren" in der Eingangsbereich Spalte hinzu, der standardmäßig deaktiviert ist. Der delayed playback buffer soll nur verwendet werden wenn dieser Kontrollkästchen aktiviert ist.
