@@ -25,7 +25,7 @@ from collections import deque
 class SimplexRepeater:
     def __init__(self, root):
         self.root = root
-        self.root.title("Simplex Repeater")
+        self.root.title("Simplex/Duplex Repeater")
         self.root.geometry("1200x800")
         
         # Audio-Parameter
@@ -951,19 +951,13 @@ class SimplexRepeater:
     
     def on_input_device_changed(self, event=None):
         """Wird aufgerufen wenn Eingangsquelle geändert wird"""
-        if self.running:
-            # Setze Flag für Stream-Neustart während laufendem Betrieb
-            self.restart_streams_flag = True
-            self.root.after(0, self.update_status, "Ein/Ausgangsquelle wird beim nächsten Stop gewechselt...", 'blue')
-            print("Eingangsquelle wird gewechselt...")
+        # Quellenwechsel nur im Stillstand erlaubt (Dropdown ist während Betrieb deaktiviert)
+        pass
     
     def on_output_device_changed(self, event=None):
         """Wird aufgerufen wenn Ausgangsquelle geändert wird"""
-        if self.running:
-            # Setze Flag für Stream-Neustart während laufendem Betrieb
-            self.restart_streams_flag = True
-            self.root.after(0, self.update_status, "Ein/Ausgangsquelle wird beim nächsten Stop gewechselt...", 'blue')
-            print("Ausgangsquelle wird gewechselt...")
+        # Quellenwechsel nur im Stillstand erlaubt (Dropdown ist während Betrieb deaktiviert)
+        pass
     
     def restart_audio_streams(self):
         """Trennt alte Streams und öffnet neue mit aktuellen Geräten"""
@@ -1055,6 +1049,10 @@ class SimplexRepeater:
         self.running = True
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
+        # Deaktiviere Geräte- und Abtastrate-Dropdowns während Betrieb
+        self.input_device_combo.config(state=tk.DISABLED)
+        self.output_device_combo.config(state=tk.DISABLED)
+        self.sample_rate_combo.config(state=tk.DISABLED)
         self.update_status("Simplex Bereit - Warte auf überschreiten des Startpegels...", 'green')
         
         # Audio-Thread starten
@@ -1068,6 +1066,10 @@ class SimplexRepeater:
         self.is_playing = False
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
+        # Aktiviere Geräte- und Abtastrate-Dropdowns wieder
+        self.input_device_combo.config(state='readonly')
+        self.output_device_combo.config(state='readonly')
+        self.sample_rate_combo.config(state='readonly')
         self.update_status("Gestoppt", 'red')
         self.progress['value'] = 0
         # Konfiguration speichern
@@ -1337,29 +1339,6 @@ class SimplexRepeater:
         playback_t.start()
 
         while self.running:
-            # Prüfe ob Streams neu gestartet werden müssen
-            if self.restart_streams_flag:
-                self.restart_streams_flag = False
-                self.root.after(0, self.update_status, "Quellen werden gewechselt...", 'orange')
-                
-                # Warte bis Aufnahme/Wiedergabe beendet ist
-                while (self.is_recording or self.is_playing) and self.running:
-                    time.sleep(0.1)
-                
-                # Streams neu starten
-                self.restart_audio_streams()
-                
-                if self.stream_in is None or self.stream_out is None:
-                    self.root.after(0, messagebox.showerror, "Fehler", 
-                                  "Audio-Streams konnten nicht gewechselt werden!")
-                    break
-                
-                # Erfolgreiche Benachrichtigung mit kurzer Anzeige
-                self.root.after(0, self.update_status, "✓ Quellenwechsel erfolgreich!", 'green')
-                # Nach 2 Sekunden zurück zum normalen Status
-                time.sleep(2)
-                self.root.after(0, self.update_status, "Bereit - Warte auf Signal...", 'green')
-            
             # Audio-Daten lesen
             try:
                 # Sperre für Stream-Zugriff
