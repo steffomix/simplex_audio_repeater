@@ -242,3 +242,6 @@ Der Duplex Modus verwendet einen delayed playback buffer um die Wiedergabe zu ve
 
 Schritt 26:
 Der Simplex Repeater funktioniert jetzt einwandfrei mit dem delayed playback buffer! Jedoch sollte er nicht permanent aktiv sein, sondern nur wenn der Monitoring Modus aktiviert ist. Bitte füge einen Kontrollkästchen "Monitoring aktivieren" in der Eingangsbereich Spalte hinzu, der standardmäßig deaktiviert ist. Der delayed playback buffer soll nur verwendet werden wenn dieser Kontrollkästchen aktiviert ist.
+
+Schritt 27:
+Das wechseln der Audio Eingangs- und Ausgangsquellen im laufenden Betrieb funktioniert nicht während der Repeater läuft. Bitte behebe das, das die Quellen im laufenden Betrieb nicht gewechselt werden können.

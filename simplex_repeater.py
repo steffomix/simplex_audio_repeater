@@ -623,14 +623,6 @@ class SimplexRepeater:
         row_right += 1
         ttk.Label(right_frame, text="Equalizer:", font=('Arial', 11, 'bold')).grid(
             row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
-        
-        # Equalizer Aktivieren/Deaktivieren
-        row_right += 1
-        self.equalizer_enabled_var = tk.BooleanVar(value=True)
-        self.equalizer_checkbox = ttk.Checkbutton(right_frame, text="Equalizer aktivieren",
-                                                   variable=self.equalizer_enabled_var,
-                                                   command=self.on_equalizer_toggle)
-        self.equalizer_checkbox.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=5)
 
         
         # Verstärkungsfaktor-Einstellung
@@ -647,6 +639,14 @@ class SimplexRepeater:
         self.gain_label = ttk.Label(gain_frame, text="0.0 dB")
         self.gain_label.pack(side=tk.LEFT, padx=5)
         self.gain_var.trace('w', self.update_gain_label)
+        
+        # Equalizer Aktivieren/Deaktivieren
+        row_right += 1
+        self.equalizer_enabled_var = tk.BooleanVar(value=True)
+        self.equalizer_checkbox = ttk.Checkbutton(right_frame, text="Equalizer aktivieren",
+                                                   variable=self.equalizer_enabled_var,
+                                                   command=self.on_equalizer_toggle)
+        self.equalizer_checkbox.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(5, 10))
         
         # Equalizer-Bänder (5 Bänder)
         self.eq_scales = {}
@@ -952,18 +952,18 @@ class SimplexRepeater:
     def on_input_device_changed(self, event=None):
         """Wird aufgerufen wenn Eingangsquelle geändert wird"""
         if self.running:
+            # Setze Flag für Stream-Neustart während laufendem Betrieb
             self.restart_streams_flag = True
-            self.stop_repeater()
-            time.sleep(1)  # Kurze Pause um sicherzustellen, dass Streams geschlossen sind
-            self.start_repeater()
+            self.root.after(0, self.update_status, "Ein/Ausgangsquelle wird beim nächsten Stop gewechselt...", 'blue')
+            print("Eingangsquelle wird gewechselt...")
     
     def on_output_device_changed(self, event=None):
         """Wird aufgerufen wenn Ausgangsquelle geändert wird"""
         if self.running:
+            # Setze Flag für Stream-Neustart während laufendem Betrieb
             self.restart_streams_flag = True
-            self.stop_repeater()
-            time.sleep(1)  # Kurze Pause um sicherzustellen, dass Streams geschlossen sind
-            self.start_repeater()
+            self.root.after(0, self.update_status, "Ein/Ausgangsquelle wird beim nächsten Stop gewechselt...", 'blue')
+            print("Ausgangsquelle wird gewechselt...")
     
     def restart_audio_streams(self):
         """Trennt alte Streams und öffnet neue mit aktuellen Geräten"""
@@ -1354,6 +1354,10 @@ class SimplexRepeater:
                                   "Audio-Streams konnten nicht gewechselt werden!")
                     break
                 
+                # Erfolgreiche Benachrichtigung mit kurzer Anzeige
+                self.root.after(0, self.update_status, "✓ Quellenwechsel erfolgreich!", 'green')
+                # Nach 2 Sekunden zurück zum normalen Status
+                time.sleep(2)
                 self.root.after(0, self.update_status, "Bereit - Warte auf Signal...", 'green')
             
             # Audio-Daten lesen
