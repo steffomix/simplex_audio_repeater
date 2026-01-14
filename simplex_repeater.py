@@ -742,7 +742,7 @@ class SimplexRepeater:
     def on_playback_delay_change(self, value):
         """Wird aufgerufen wenn sich die Wiedergabeverzögerung ändert"""
         self.playback_delay_ms = int(float(value))
-        self.duplex_target_buffer_size = self.get_duplex_target_buffer_size()
+        self.calculate_delayed_buffer_size()
         
     def on_equalizer_toggle(self):
         """Wird aufgerufen wenn Equalizer aktiviert/deaktiviert wird"""
@@ -1146,12 +1146,12 @@ class SimplexRepeater:
                           f"Audio-Fehler: {str(e)}")
             self.root.after(0, self.stop_repeater)
     
-    def get_duplex_target_buffer_size(self):
+    def calculate_delayed_buffer_size(self):
         """Berechnet die Zielgröße des Duplex-Wiedergabe-Buffers basierend auf der Verzögerung"""
         delay_ms = self.playback_delay_var.get()
         delay_chunks = int((delay_ms / 1000.0) * self.RATE / self.CHUNK)
         delay_chunks = max(2, delay_chunks)
-        return delay_chunks
+        self.delayed_playback_buffer_size = delay_chunks
 
     def audio_loop_duplex(self):
         """Audio-Schleife für Duplex-Modus (gleichzeitig aufnehmen und abspielen)
@@ -1160,28 +1160,31 @@ class SimplexRepeater:
         # Ring-Buffer für verzögertes Wiedergabe-Streaming
         
         # WICHTIG: Kein maxlen - wir wollen einen konstanten Puffer für permanente Verzögerung
-        self.duplex_playback_buffer = deque()
+        self.delayed_playback_buffer = deque()
         self.duplex_recording = True
-        self.duplex_target_buffer_size = self.get_duplex_target_buffer_size()
+        self.calculate_delayed_buffer_size()
         
         # Stille für initialen Buffer (nutzt output_channels für Wiedergabe)
         silence = np.zeros(self.CHUNK * self.output_channels, dtype=np.int16).tobytes()
         
         # Fülle Buffer initial mit Verzögerung
-        for _ in range(self.duplex_target_buffer_size):
-            self.duplex_playback_buffer.append(silence)
+        for _ in range(self.delayed_playback_buffer_size):
+            self.delayed_playback_buffer.append(silence)
         
         self.root.after(0, self.update_status, 
                        f"Duplex: Aktiv ({self.playback_delay_var.get()}ms Verzögerung)", 'green')
         
         # Thread für kontinuierliche Aufnahme
         def record_thread():
-            """Kontinuierliche Aufnahme ohne Trigger - läuft permanent"""
-            chunk_counter = 0  # Für Rate-Limiting der Pegelanzeige
             
             while self.running and self.duplex_recording:
                 
                 try:
+                    # Warte bis genug Platz im Buffer ist
+                    self.calculate_delayed_buffer_size()
+                    while len(self.delayed_playback_buffer) > self.delayed_playback_buffer_size:
+                        time.sleep(0.001)
+
                     # Aufnahme
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
 
@@ -1195,7 +1198,7 @@ class SimplexRepeater:
                     data = self.convert_channels(data, self.input_channels, self.output_channels)
                     
                     # Sofort zum Wiedergabe-Buffer hinzufügen (Performance-kritisch!)
-                    self.duplex_playback_buffer.append(data)
+                    self.delayed_playback_buffer.append(data)
 
                     level = self.calculate_level(data)
                     self._update_level_gui(level)
@@ -1208,18 +1211,19 @@ class SimplexRepeater:
         def playback_thread():
             """Kontinuierliche Wiedergabe aus Buffer mit konstanter Verzögerung"""
             # Warte bis Buffer gefüllt ist
-            while len(self.duplex_playback_buffer) < self.duplex_target_buffer_size and self.running:
+            while len(self.delayed_playback_buffer) < self.delayed_playback_buffer_size and self.running:
                 time.sleep(0.01)
             
             while self.running:
                 try:
+
                     # Spiele ab, sobald mindestens die Ziel-Verzögerung erreicht ist
-                    if len(self.duplex_playback_buffer) >= self.duplex_target_buffer_size:
+                    if len(self.delayed_playback_buffer) >= self.delayed_playback_buffer_size:
                         
                         # Hole Daten aus dem Buffer 
-                        data = self.duplex_playback_buffer.popleft()
-                        while len(self.duplex_playback_buffer) >= self.duplex_target_buffer_size:
-                             data += self.duplex_playback_buffer.popleft()
+                        data = self.delayed_playback_buffer.popleft()
+                        while len(self.delayed_playback_buffer) >= self.delayed_playback_buffer_size:
+                             data += self.delayed_playback_buffer.popleft()
 
                         self.stream_out.write(data)
                     else:
@@ -1230,7 +1234,7 @@ class SimplexRepeater:
                     print(f"Fehler bei Wiedergabe (Duplex): {e}")
                     time.sleep(0.001)
             
-            self.duplex_playback_buffer.clear()
+            self.delayed_playback_buffer.clear()
         
 
         # Starte beide Threads
@@ -1251,6 +1255,8 @@ class SimplexRepeater:
     def audio_loop_simplex(self):
         """Audio-Schleife für Simplex-Modus (klassischer Modus)"""
         
+        self.delayed_playback_buffer = deque()
+
         while self.running:
             # Prüfe ob Streams neu gestartet werden müssen
             if self.restart_streams_flag:
