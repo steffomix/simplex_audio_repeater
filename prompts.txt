@@ -245,3 +245,57 @@ Der Simplex Repeater funktioniert jetzt einwandfrei mit dem delayed playback buf
 
 Schritt 27:
 Das wechseln der Audio Eingangs- und Ausgangsquellen im laufenden Betrieb funktioniert nicht während der Repeater läuft. Bitte behebe das, das die Quellen im laufenden Betrieb nicht gewechselt werden können.
+
+Schritt 28:
+Ich benötige eine Windows .bat Datei, die alles notwendige ausführt um dieses Programm zu starten. Also das installieren der Abhängigkeiten, prüfen ob python installiert ist und zumindest Informationen wo python heruntergeladen werden kann. Bestenfalls soll es nach einer Frage an den Benutzer python herunterladen und installieren wenn das möglich ist. Also kurz gesagt ein komplett kompfort Paket zum starten dieses Programms für unerfahrene Windows Benutzer.
+
+Claude Antwort :D
+Checked requirements.txt and created .bat file
+Ich erstelle eine umfassende Windows .bat Datei für Sie. Zuerst schaue ich mir die Abhängigkeiten an:
+
+Read requirements and simplex repeater files
+Jetzt erstelle ich eine umfassende .bat Datei mit Python-Installation, Abhängigkeiten-Installation und Programmstart:
+
+Created start_simplex_repeater.bat
+
+Perfekt! Ich habe eine umfassende Windows .bat Datei erstellt: start_simplex_repeater.bat
+
+Features der Batch-Datei:
+
+✅ Python-Prüfung & Installation:
+
+Prüft ob Python installiert ist
+Bietet automatische Installation von Python 3.11.7
+Lädt Python herunter und installiert es mit korrekten PATH-Einstellungen
+Alternativ: Zeigt manuelle Download-Links
+✅ Versionscheck:
+
+Prüft ob Python 3.8+ vorhanden ist
+Warnt bei veralteten Versionen
+✅ Virtuelle Umgebung:
+
+Erstellt automatisch ein venv für saubere Paket-Installation
+Verhindert Konflikte mit anderen Python-Projekten
+✅ Abhängigkeiten:
+
+Installiert automatisch alle Pakete aus requirements.txt
+Aktualisiert pip
+Gibt hilfreiche Fehlermeldungen bei Problemen
+✅ Benutzerfreundlich:
+
+Farbige Konsole (grün)
+Deutsche Beschriftung
+Fortschrittsanzeige (1/4, 2/4, etc.)
+Klare Fehlermeldungen mit Lösungsvorschlägen
+Pausiert bei Fehlern für Benutzer-Feedback
+✅ Programmstart:
+
+Startet simplex_repeater.py automatisch
+Warnt davor, das Fenster zu schließen
+Verwendung für Endbenutzer:
+
+Datei doppelklicken
+Bei Bedarf Python-Installation bestätigen
+Warten bis Abhängigkeiten installiert sind
+Programm startet automatisch
+Die Datei ist komplett selbsterklärend und für unerfahrene Windows-Benutzer optimiert!
