@@ -239,9 +239,6 @@ class CallbacksMixin:
         self.sample_rate_combo.config(state=tk.DISABLED)
         self.update_status("Simplex Bereit - Warte auf überschreiten des Startpegels...", 'green')
 
-        # PipeWire-Verbindungen herstellen
-        self.apply_pipewire_patchbay()
-
         # Audio-Thread starten
         self.audio_thread = threading.Thread(target=self.audio_loop, daemon=True)
         self.audio_thread.start()

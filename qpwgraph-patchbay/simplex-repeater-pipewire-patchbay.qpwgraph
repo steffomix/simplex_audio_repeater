@@ -1,21 +1,21 @@
 <!DOCTYPE patchbay>
-<patchbay version="0.6.1" name="simplex-repeater-pipewire-patchbay">
+<patchbay name="simplex-repeater-pipewire-patchbay" version="0.6.1">
  <items>
-  <item port-type="pipewire-audio" node-type="pipewire">
-   <output node="PCM2902 Audio Codec Analoges Mono" port="USB PnP Sound Device:capture_MONO"/>
-   <input node="PipeWire ALSA [python3.12]/ALSA Capture [python3.12]" port="ALSA Capture [python3.12]:input_FR"/>
+  <item node-type="pipewire" port-type="pipewire-audio">
+   <output port="USB PnP Sound Device:capture_MONO" node="PCM2902 Audio Codec Analoges Mono"/>
+   <input port="ALSA Capture [python3.12]:input_FR" node="PipeWire ALSA [python3.12]/ALSA Capture [python3.12]"/>
   </item>
-  <item port-type="pipewire-audio" node-type="pipewire">
-   <output node="PCM2902 Audio Codec Analoges Mono" port="USB PnP Sound Device:capture_MONO"/>
-   <input node="PipeWire ALSA [python3.12]/ALSA Capture [python3.12]" port="ALSA Capture [python3.12]:input_FL"/>
+  <item node-type="pipewire" port-type="pipewire-audio">
+   <output port="ALSA Playback [python3.12]:output_FL" node="PipeWire ALSA [python3.12]/ALSA Playback [python3.12]"/>
+   <input port="USB PnP Sound Device:playback_FL" node="PCM2902 Audio Codec Analoges Stereo"/>
   </item>
-  <item port-type="pipewire-audio" node-type="pipewire">
-   <output node="PipeWire ALSA [python3.12]/ALSA Playback [python3.12]" port="ALSA Playback [python3.12]:output_FR"/>
-   <input node="PCM2902 Audio Codec Analoges Stereo" port="USB PnP Sound Device:playback_FR"/>
+  <item node-type="pipewire" port-type="pipewire-audio">
+   <output port="USB PnP Sound Device:capture_MONO" node="PCM2902 Audio Codec Analoges Mono"/>
+   <input port="ALSA Capture [python3.12]:input_FL" node="PipeWire ALSA [python3.12]/ALSA Capture [python3.12]"/>
   </item>
-  <item port-type="pipewire-audio" node-type="pipewire">
-   <output node="PipeWire ALSA [python3.12]/ALSA Playback [python3.12]" port="ALSA Playback [python3.12]:output_FL"/>
-   <input node="PCM2902 Audio Codec Analoges Stereo" port="USB PnP Sound Device:playback_FL"/>
+  <item node-type="pipewire" port-type="pipewire-audio">
+   <output port="ALSA Playback [python3.12]:output_FR" node="PipeWire ALSA [python3.12]/ALSA Playback [python3.12]"/>
+   <input port="USB PnP Sound Device:playback_FR" node="PCM2902 Audio Codec Analoges Stereo"/>
   </item>
  </items>
 </patchbay>

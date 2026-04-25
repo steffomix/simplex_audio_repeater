@@ -19,6 +19,12 @@ class AudioEngineMixin:
                 self.root.after(0, self.stop_repeater)
                 return
 
+            # PipeWire-Verbindungen herstellen: kurzer Delay damit PipeWire
+            # die neuen ALSA-Nodes registrieren kann, bevor pw-link sie verbindet
+            time.sleep(0.5)
+            print("Stelle PipeWire-Verbindungen her...")
+            self.apply_pipewire_patchbay()
+
             # Duplex oder Simplex Modus
             if self.is_duplex_mode:
                 self.audio_loop_duplex()
