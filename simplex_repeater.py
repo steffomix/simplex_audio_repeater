@@ -7,8 +7,8 @@ Unterstützt Simplex (abwechselnd) und Duplex (gleichzeitig) Modi.
 
 import os
 # Setze PipeWire/ALSA Umgebungsvariablen für Stereo-Unterstützung
-os.environ['PIPEWIRE_LATENCY'] = '512/48000'
-os.environ['PIPEWIRE_QUANTUM'] = '1024/48000'
+# os.environ['PIPEWIRE_LATENCY'] = '512/48000'
+# os.environ['PIPEWIRE_QUANTUM'] = '1024/48000'
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -34,7 +34,7 @@ class SimplexRepeater:
         self.CHANNELS = 2  # Standard: Stereo (wird beim Stream-Öffnen aktualisiert)
         self.input_channels = 2  # Tatsächliche Anzahl Eingangskanäle
         self.output_channels = 2  # Tatsächliche Anzahl Ausgangskanäle
-        self.RATE = 44000 
+        self.RATE = 44100 
         # Equalizer-Aktivierung
         self.equalizer_enabled = True
         
@@ -65,6 +65,9 @@ class SimplexRepeater:
         for band in self.eq_bands:
             self.eq_gains[band] = tk.DoubleVar(value=0.0)
         
+        # Eingangsverstärker
+        self.input_gain_var = tk.DoubleVar(value=0.0)
+        
         # Wiedergabeverzögerung (für Duplex-Modus)
         self.playback_delay_ms = 0  # in Millisekunden
         
@@ -93,6 +96,16 @@ class SimplexRepeater:
         self.eq_filter_states = {}
         self.eq_filter_sos = {}
         self._init_equalizer_filters()
+
+    def get_device_channels(self, device_index):
+        """Ermittelt die maximale Anzahl von Ein- und Ausgangskanälen für ein Gerät."""
+        try:
+            device_info = self.p.get_device_info_by_index(device_index)
+            input_channels = device_info.get('maxInputChannels', 0)
+            output_channels = device_info.get('maxOutputChannels', 0)
+            return input_channels, output_channels
+        except IOError:
+            return 0, 0
     
     def convert_channels(self, data, from_channels, to_channels):
         """Konvertiert Audio zwischen Mono und Stereo
@@ -116,7 +129,7 @@ class SimplexRepeater:
             mono = audio_np.mean(axis=1).astype(np.int16)
             return mono.tobytes()
         elif from_channels == 1 and to_channels == 2:
-            # Mono zu Stereo: Dupliziere Kanal
+            # Mono zu Stereo: Dupliziere Mono-Kanal
             stereo = np.column_stack([audio_np, audio_np]).flatten()
             return stereo.tobytes()
         
@@ -472,6 +485,19 @@ class SimplexRepeater:
                                                     command=self.on_monitoring_toggle)
         self.monitoring_checkbox.grid(row=row_left, column=0, columnspan=2, sticky=tk.W, pady=5)
         
+        # Eingangsverstärker-Regler (direkt über dem Pegelbalken)
+        row_left += 1
+        ttk.Label(left_frame, text="Eingangsverstärker:").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
+        input_gain_frame = ttk.Frame(left_frame)
+        input_gain_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.input_gain_scale = ttk.Scale(input_gain_frame, from_=-20.0, to=20.0,
+                                          variable=self.input_gain_var, orient=tk.HORIZONTAL)
+        self.input_gain_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.input_gain_label = ttk.Label(input_gain_frame, text="0.0 dB")
+        self.input_gain_label.pack(side=tk.LEFT, padx=5)
+        self.input_gain_var.trace('w', self.update_input_gain_label)
+
         # Canvas für Pegelanzeige
         row_left += 1
         self.level_canvas = tk.Canvas(left_frame, height=40, bg='white', 
@@ -798,6 +824,10 @@ class SimplexRepeater:
         value = self.gain_var.get()
         self.gain_label.config(text=f"{value:+.1f} dB")
     
+    def update_input_gain_label(self, *args):
+        value = self.input_gain_var.get()
+        self.input_gain_label.config(text=f"{value:+.1f} dB")
+
     def update_eq_label(self, band):
         """Aktualisiert das Label für ein Equalizer-Band"""
         value = self.eq_gains[band].get()
@@ -992,6 +1022,9 @@ class SimplexRepeater:
                     # Versuche mit der angegebenen Kanalanzahl zu öffnen
                     # Bei Fehlschlag versuche mit weniger Kanälen
                     opened = False
+
+                    self.get_device_channels(input_device_id)  # Aktualisiere Kanalanzahl basierend auf Geräteliste
+
                     for try_channels in [input_channels, 2, 1]:  # Versuche gewünschte, dann Stereo, dann Mono
                         if opened:
                             break
@@ -1213,6 +1246,7 @@ class SimplexRepeater:
                         
                     # Aufnahme
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                    data = self.apply_input_gain(data)
                     
                     # Sofort zum Wiedergabe-Buffer hinzufügen (Performance-kritisch!)
                     self.delayed_playback_buffer.append(data)
@@ -1348,6 +1382,7 @@ class SimplexRepeater:
 
                     # Aufnahme
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                    data = self.apply_input_gain(data)
 
                     # Füge zum verzögerten Wiedergabe-Buffer hinzu nur wenn Monitoring aktiviert
                     if self.monitoring_enabled:
@@ -1420,6 +1455,7 @@ class SimplexRepeater:
                         break
 
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
+                    data = self.apply_input_gain(data)
                     chunk_count += 1
 
                     self.audio_buffer.append(data)
@@ -1488,6 +1524,19 @@ class SimplexRepeater:
         # Zurück zu int16 konvertieren
         return audio_data.astype(np.int16).tobytes()
     
+    def apply_input_gain(self, data):
+        """Wendet Eingangsverstärkung auf rohe Aufnahmedaten an"""
+        gain_db = self.input_gain_var.get()
+        
+        if gain_db == 0.0:
+            return data
+        
+        gain_linear = 10.0 ** (gain_db / 20.0)
+        audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+        audio_data *= gain_linear
+        audio_data = np.clip(audio_data, -32768, 32767)
+        return audio_data.astype(np.int16).tobytes()
+
     def play_audio(self):
         """Spielt aufgenommenes Audio ab - verwendet den bereits geöffneten Stream"""
         self.is_playing = True
@@ -1550,6 +1599,7 @@ class SimplexRepeater:
                 self.stop_time_var.set(config.get('stop_time', 0.5))
                 self.dead_time_var.set(config.get('dead_time', 2.0))
                 self.gain_var.set(config.get('gain', 0.0))
+                self.input_gain_var.set(config.get('input_gain', 0.0))
                 
                 # Equalizer-Einstellungen laden
                 eq_config = config.get('equalizer', {})
@@ -1625,6 +1675,7 @@ class SimplexRepeater:
                 'stop_time': self.stop_time_var.get(),
                 'dead_time': self.dead_time_var.get(),
                 'gain': self.gain_var.get(),
+                'input_gain': self.input_gain_var.get(),
                 'playback_delay': self.playback_delay_var.get(),
                 'equalizer': eq_config,
                 'equalizer_enabled': self.equalizer_enabled_var.get(),
