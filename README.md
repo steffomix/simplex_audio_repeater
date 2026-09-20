@@ -181,4 +181,4 @@ Oder einfach eines der Starter-Skripte aus dem [Schnellstart](#schnellstart-auch
 
 ## Lizenz
 
-Siehe LICENSE Datei
+Siehe LICENSE Datei.
