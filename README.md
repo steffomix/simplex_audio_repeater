@@ -2,11 +2,32 @@
 
 Ein flexibler Audio-Repeater mit grafischer Benutzeroberfläche, der Audio aufnimmt wenn ein Schwellwert überschritten wird und es danach sofort wieder abspielt. Unterstützt sowohl Simplex- (abwechselnd) als auch Duplex-Betrieb (gleichzeitig).
 
+![Simplex Repeater Screenshot](images/simplex_repeater_screenshot.png)
+
+## Schnellstart (auch ohne Programmiererfahrung)
+
+Für den Start wird nur ein Doppelklick benötigt - die Starter-Skripte kümmern sich automatisch um Python, die virtuelle Umgebung und alle Abhängigkeiten.
+
+### Windows
+1. Doppelklick auf **`start_simplex_repeater.bat`**
+2. Falls Python noch nicht installiert ist, bietet das Skript an, es automatisch herunterzuladen und zu installieren
+3. Beim ersten Start werden alle benötigten Pakete installiert - das kann etwas dauern
+4. Danach öffnet sich automatisch das Programmfenster
+
+### Linux
+1. Doppelklick auf **`start_simplex_repeater.sh`** und "Im Terminal ausführen" wählen
+   (falls der Dateimanager das nicht anbietet, ein Terminal im Programmordner öffnen und `./start_simplex_repeater.sh` eingeben)
+2. Falls Systempakete wie Tkinter oder PortAudio fehlen, schlägt das Skript den passenden Installationsbefehl vor und fragt, ob es sie automatisch installieren soll (Administratorpasswort erforderlich)
+3. Danach öffnet sich automatisch das Programmfenster
+
+Sollte eines der Skripte nicht funktionieren, hilft der Abschnitt [Fehlerbehebung](#fehlerbehebung) weiter, oder Sie folgen der [manuellen Installation](#manuelle-installation).
+
 ## Funktionen
 
 ### Allgemeine Funktionen
-- **Einstellbarer Eingangspegel**: Schwellwert für die Aktivierung der Aufnahme
-- **Einstellbarer Abbruchpegel**: Pegel zum automatischen Stoppen der Aufnahme
+- **Einstellbarer Eingangspegel**: Schwellwert für die Aktivierung der Aufnahme (roter Regler/roter Balken)
+- **Einstellbarer Abbruchpegel**: Pegel zum automatischen Stoppen der Aufnahme (grüner Regler/grüner Balken)
+- **Schwellwerte direkt in der Pegelanzeige verschiebbar**: Die rote und grüne Linie lassen sich statt über den Schieberegler auch direkt mit der Maus in der Pegelanzeige ziehen
 - **Pegeldämpfung**: Attack/Release-Parameter für weichere Pegelübergänge
 - **Einstellbare Aufnahmezeit**: 1-120 Sekunden Aufnahmedauer
 - **Auswählbare Audio-Quellen**: Wahl des Eingabe- und Ausgabegeräts, unterstützt Mono- und Stereo-Geräte
@@ -31,18 +52,34 @@ Ein flexibler Audio-Repeater mit grafischer Benutzeroberfläche, der Audio aufni
   - Kontinuierliche Wiedergabe aufgenommener Signale
   - Ideal für Echo-Effekte oder Live-Monitoring
 
-## Installation
+## Manuelle Installation
 
-1. Python 3.x muss installiert sein
+Für erfahrene Nutzer, oder falls die Starter-Skripte aus dem [Schnellstart](#schnellstart-auch-ohne-programmiererfahrung) nicht funktionieren:
 
-2. Abhängigkeiten installieren:
+1. Python 3.8 oder höher muss installiert sein (siehe [Fehlerbehebung](#fehlerbehebung), falls nicht)
+
+2. Unter Linux werden zusätzlich zwei Systempakete benötigt (Tkinter für die Oberfläche, PortAudio für die Audio-Ein-/Ausgabe):
 ```bash
-pip install -r requirements.txt
+# Ubuntu/Debian
+sudo apt install python3-tk portaudio19-dev
+
+# Fedora
+sudo dnf install python3-tkinter portaudio-devel
+
+# Arch Linux
+sudo pacman -S tk portaudio
 ```
 
-Unter Linux benötigen Sie möglicherweise zusätzlich PortAudio:
+3. (Optional, empfohlen) Virtuelle Umgebung anlegen und aktivieren:
 ```bash
-sudo apt-get install portaudio19-dev python3-pyaudio
+python3 -m venv venv
+source venv/bin/activate      # Linux/macOS
+venv\Scripts\activate.bat     # Windows
+```
+
+4. Python-Abhängigkeiten installieren:
+```bash
+pip install -r requirements.txt
 ```
 
 ## Verwendung
@@ -51,6 +88,8 @@ Starten Sie das Programm:
 ```bash
 python simplex_repeater.py
 ```
+
+Oder einfach eines der Starter-Skripte aus dem [Schnellstart](#schnellstart-auch-ohne-programmiererfahrung) verwenden.
 
 ### Bedienung
 
@@ -109,6 +148,29 @@ python simplex_repeater.py
 - Wird nur auf die Wiedergabe angewendet, nicht auf die Aufnahme
 - Funktioniert sowohl im Simplex- als auch im Duplex-Modus
 - Bei 0 dB (Standard) ist keine Filterung aktiv (optimale Performance)
+
+## Fehlerbehebung
+
+#### "Python wurde nicht gefunden"
+- Windows: Python von [python.org/downloads](https://www.python.org/downloads/) installieren und dabei **"Add Python to PATH"** aktivieren, oder im Starter-Skript die automatische Installation bestätigen.
+- Linux: `sudo apt install python3 python3-venv python3-pip` (bzw. `dnf`/`pacman`, siehe [Manuelle Installation](#manuelle-installation)).
+
+#### "No module named 'tkinter'" oder das Fenster öffnet sich gar nicht
+- Tkinter ist unter Linux ein separates Systempaket und wird nicht über `pip` installiert: `sudo apt install python3-tk` (bzw. `python3-tkinter`/`tk` bei Fedora/Arch).
+
+#### Installation von PyAudio schlägt fehl
+- Meist fehlen die PortAudio-Entwicklungsdateien. Installieren Sie `portaudio19-dev` (Ubuntu/Debian), `portaudio-devel` (Fedora) oder `portaudio` (Arch) und führen Sie `pip install -r requirements.txt` erneut aus.
+- Unter Windows: `pip install pipwin` und danach `pipwin install pyaudio`.
+
+#### Das gewünschte Audiogerät wird in den Dropdowns nicht angezeigt
+- Klicken Sie auf **"Geräte aktualisieren"** (unterhalb von Start/Stop) - PortAudio erfasst neu angeschlossene Geräte (z.B. USB-Soundkarten) nur beim (Neu-)Initialisieren, nicht automatisch während das Programm läuft.
+- Prüfen Sie mit `python debug_devices.py`, ob das Betriebssystem das Gerät überhaupt erkennt.
+
+#### Das Programm findet ein zuvor ausgewähltes Gerät nicht mehr
+- Das kann passieren, wenn sich der Geräte-Index seit dem letzten Start geändert hat (z.B. weil ein anderes USB-Gerät an-/abgesteckt wurde). Wählen Sie das Gerät einfach erneut in der Dropdown-Liste aus - die Auswahl wird gespeichert.
+
+#### Kein Ton/Rückkopplung
+- Siehe [Bekannte Einschränkungen](#bekannte-einschränkungen) unten.
 
 ## Bekannte Einschränkungen
 
