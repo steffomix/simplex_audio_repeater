@@ -119,35 +119,6 @@ class GuiMixin:
         ttk.Label(left_frame, text="Pegeleinstellungen:", font=('Arial', 11, 'bold')).grid(
             row=row_left, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
 
-        # Eingangspegel-Einstellung (Start Threshold)
-        row_left += 1
-        ttk.Label(left_frame, text="Startpegel (rot):").grid(
-            row=row_left, column=0, sticky=tk.W, pady=5)
-        self.start_threshold_var = tk.IntVar(value=1000)
-        threshold_frame = ttk.Frame(left_frame)
-        threshold_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
-        self.threshold_scale = ttk.Scale(threshold_frame, from_=0, to=10000,
-                                        variable=self.start_threshold_var, orient=tk.HORIZONTAL,
-                                        command=self.on_threshold_change)
-        self.threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.threshold_label = ttk.Label(threshold_frame, text="1000")
-        self.threshold_label.pack(side=tk.LEFT, padx=5)
-        self.start_threshold_var.trace('w', self.update_threshold_label)
-
-        # Abbruch-Pegel-Einstellung (Stop Threshold)
-        row_left += 1
-        ttk.Label(left_frame, text="Stoppegel (grün):").grid(
-            row=row_left, column=0, sticky=tk.W, pady=5)
-        self.stop_threshold_var = tk.IntVar(value=100)
-        stop_threshold_frame = ttk.Frame(left_frame)
-        stop_threshold_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
-        self.stop_threshold_scale = ttk.Scale(stop_threshold_frame, from_=0, to=10000,
-                                             variable=self.stop_threshold_var, orient=tk.HORIZONTAL)
-        self.stop_threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.stop_threshold_label = ttk.Label(stop_threshold_frame, text="100")
-        self.stop_threshold_label.pack(side=tk.LEFT, padx=5)
-        self.stop_threshold_var.trace('w', self.update_stop_threshold_label)
-
         # Monitoring aktivieren (Checkbox)
         row_left += 1
         self.monitoring_var = tk.BooleanVar(value=False)
@@ -169,6 +140,42 @@ class GuiMixin:
         self.input_gain_label.pack(side=tk.LEFT, padx=5)
         self.input_gain_var.trace('w', self.update_input_gain_label)
 
+        # Eingangspegel-Einstellung (Start Threshold)
+        row_left += 1
+        ttk.Label(left_frame, text="Startpegel (rot):").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
+        self.start_threshold_var = tk.IntVar(value=1000)
+        threshold_frame = ttk.Frame(left_frame)
+        threshold_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
+        # tk.Scale statt ttk.Scale, da ttk-Themes den Griff nicht einfärben lassen
+        self.threshold_scale = tk.Scale(threshold_frame, from_=0, to=10000,
+                                        variable=self.start_threshold_var, orient=tk.HORIZONTAL,
+                                        command=self.on_threshold_change, showvalue=False,
+                                        troughcolor='#e0e0e0', bg='#cc3333', activebackground='#ff5555',
+                                        highlightthickness=0, bd=1)
+        self.threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.threshold_label = ttk.Label(threshold_frame, text="1000")
+        self.threshold_label.pack(side=tk.LEFT, padx=5)
+        self.start_threshold_var.trace_add('write', self.update_threshold_label)
+
+        # Abbruch-Pegel-Einstellung (Stop Threshold)
+        row_left += 1
+        ttk.Label(left_frame, text="Stoppegel (grün):").grid(
+            row=row_left, column=0, sticky=tk.W, pady=5)
+        self.stop_threshold_var = tk.IntVar(value=100)
+        stop_threshold_frame = ttk.Frame(left_frame)
+        stop_threshold_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
+        # tk.Scale statt ttk.Scale, da ttk-Themes den Griff nicht einfärben lassen
+        self.stop_threshold_scale = tk.Scale(stop_threshold_frame, from_=0, to=10000,
+                                             variable=self.stop_threshold_var, orient=tk.HORIZONTAL,
+                                             showvalue=False,
+                                             troughcolor='#e0e0e0', bg='#33aa33', activebackground='#55dd55',
+                                             highlightthickness=0, bd=1)
+        self.stop_threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.stop_threshold_label = ttk.Label(stop_threshold_frame, text="100")
+        self.stop_threshold_label.pack(side=tk.LEFT, padx=5)
+        self.stop_threshold_var.trace_add('write', self.update_stop_threshold_label)
+
         # Canvas für Pegelanzeige
         row_left += 1
         self.level_canvas = tk.Canvas(left_frame, height=40, bg='white',
@@ -179,6 +186,13 @@ class GuiMixin:
         self.level_bar = None
         self.threshold_line = None
         self.stop_threshold_line = None
+
+        # Schwellwert-Linien im Canvas per Maus verschiebbar machen
+        self._dragging_threshold = None  # 'start', 'stop' oder None
+        self.level_canvas.bind('<ButtonPress-1>', self.on_level_canvas_press)
+        self.level_canvas.bind('<B1-Motion>', self.on_level_canvas_drag)
+        self.level_canvas.bind('<ButtonRelease-1>', self.on_level_canvas_release)
+        self.level_canvas.bind('<Motion>', self.on_level_canvas_motion)
 
         # Titel Pegeldämpfung
         row_left += 1
@@ -197,7 +211,7 @@ class GuiMixin:
         self.rise_time_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.rise_time_label = ttk.Label(rise_time_frame, text="Aus")
         self.rise_time_label.pack(side=tk.LEFT, padx=5)
-        self.rise_time_var.trace('w', self.update_rise_time_label)
+        self.rise_time_var.trace_add('write', self.update_rise_time_label)
 
         # Abfalldämpfung-Einstellung (Release in ms)
         row_left += 1
@@ -211,7 +225,7 @@ class GuiMixin:
         self.fall_time_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.fall_time_label = ttk.Label(fall_time_frame, text="100.0 ms")
         self.fall_time_label.pack(side=tk.LEFT, padx=5)
-        self.fall_time_var.trace('w', self.update_fall_time_label)
+        self.fall_time_var.trace_add('write', self.update_fall_time_label)
 
         # Titel Zeiteinstellungen
         row_left += 1
@@ -230,7 +244,7 @@ class GuiMixin:
         self.record_time_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.record_time_label = ttk.Label(record_frame, text="30.0s")
         self.record_time_label.pack(side=tk.LEFT, padx=5)
-        self.record_time_var.trace('w', self.update_record_time_label)
+        self.record_time_var.trace_add('write', self.update_record_time_label)
 
         # Abbruch-Zeit-Einstellung
         row_left += 1
@@ -244,7 +258,7 @@ class GuiMixin:
         self.stop_time_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.stop_time_label = ttk.Label(stop_time_frame, text="0.5s")
         self.stop_time_label.pack(side=tk.LEFT, padx=5)
-        self.stop_time_var.trace('w', self.update_stop_time_label)
+        self.stop_time_var.trace_add('write', self.update_stop_time_label)
 
         # Totzeit-Einstellung (nur im Simplex-Modus relevant)
         row_left += 1
@@ -258,7 +272,7 @@ class GuiMixin:
         self.dead_time_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.dead_time_label = ttk.Label(dead_time_frame, text="2.0s")
         self.dead_time_label.pack(side=tk.LEFT, padx=5)
-        self.dead_time_var.trace('w', self.update_dead_time_label)
+        self.dead_time_var.trace_add('write', self.update_dead_time_label)
 
     def _build_output_panel(self, right_frame):
         """Baut die rechte Spalte (Ausgangsbereich) auf"""

@@ -118,6 +118,81 @@ class CallbacksMixin:
         """Wird aufgerufen wenn Canvas Größe ändert"""
         self.update_threshold_lines()
 
+    # ── Schwellwert-Linien per Maus verschieben ───────────────────────────────
+
+    _THRESHOLD_HIT_RADIUS = 6  # Pixel-Toleranz zum Anklicken einer Schwellwert-Linie
+    _THRESHOLD_MAX_LEVEL = 10000
+
+    def _threshold_line_x(self, value, canvas_width):
+        """Rechnet einen Pegelwert in eine X-Position im Pegel-Canvas um"""
+        return (value / self._THRESHOLD_MAX_LEVEL) * canvas_width
+
+    def on_level_canvas_press(self, event):
+        """Beginnt das Verschieben der Start- oder Stoppegel-Linie per Maus,
+        falls in ihrer Nähe geklickt wurde"""
+        canvas_width = self.level_canvas.winfo_width()
+        if canvas_width <= 1:
+            return
+
+        start_x = self._threshold_line_x(self.start_threshold_var.get(), canvas_width)
+        stop_x = self._threshold_line_x(self.stop_threshold_var.get(), canvas_width)
+
+        if abs(event.x - start_x) <= self._THRESHOLD_HIT_RADIUS:
+            self._dragging_threshold = 'start'
+        elif abs(event.x - stop_x) <= self._THRESHOLD_HIT_RADIUS:
+            self._dragging_threshold = 'stop'
+        else:
+            self._dragging_threshold = None
+
+        if self._dragging_threshold:
+            self._set_threshold_from_canvas_x(event.x, canvas_width)
+
+    def on_level_canvas_drag(self, event):
+        """Verschiebt die aktive Schwellwert-Linie während des Ziehens"""
+        if not self._dragging_threshold:
+            return
+        canvas_width = self.level_canvas.winfo_width()
+        if canvas_width <= 1:
+            return
+        self._set_threshold_from_canvas_x(event.x, canvas_width)
+
+    def on_level_canvas_release(self, event):
+        """Beendet das Verschieben einer Schwellwert-Linie"""
+        self._dragging_threshold = None
+
+    def on_level_canvas_motion(self, event):
+        """Zeigt einen Verschiebe-Cursor, wenn die Maus über einer Schwellwert-Linie steht"""
+        if self._dragging_threshold:
+            return
+        canvas_width = self.level_canvas.winfo_width()
+        if canvas_width <= 1:
+            return
+
+        start_x = self._threshold_line_x(self.start_threshold_var.get(), canvas_width)
+        stop_x = self._threshold_line_x(self.stop_threshold_var.get(), canvas_width)
+
+        if abs(event.x - start_x) <= self._THRESHOLD_HIT_RADIUS or abs(event.x - stop_x) <= self._THRESHOLD_HIT_RADIUS:
+            self.level_canvas.config(cursor='sb_h_double_arrow')
+        else:
+            self.level_canvas.config(cursor='')
+
+    def _set_threshold_from_canvas_x(self, x, canvas_width):
+        """Berechnet aus einer X-Position im Pegel-Canvas den Pegelwert und setzt
+        den gerade gezogenen Schwellwert (Start- oder Stoppegel)"""
+        x = max(0, min(x, canvas_width))
+        value = int(round((x / canvas_width) * self._THRESHOLD_MAX_LEVEL))
+
+        if self._dragging_threshold == 'start':
+            # Startpegel darf nicht unter den aktuellen Stoppegel fallen
+            value = max(value, self.stop_threshold_var.get())
+            self.start_threshold_var.set(value)
+            # Dieselbe Folgelogik wie beim Ziehen des Schiebereglers anwenden
+            self.on_threshold_change(value)
+        elif self._dragging_threshold == 'stop':
+            # Stoppegel darf den aktuellen Startpegel nicht überschreiten
+            value = min(value, self.start_threshold_var.get())
+            self.stop_threshold_var.set(value)
+
     # ── Canvas-Zeichenmethoden ────────────────────────────────────────────────
 
     def update_threshold_lines(self):
@@ -127,14 +202,10 @@ class CallbacksMixin:
             return
 
         canvas_height = 40
-        max_level = 10000  # Maximum des Eingangspegels
 
         # Berechne X-Positionen
-        start_threshold = self.start_threshold_var.get()
-        stop_threshold = self.stop_threshold_var.get()
-
-        threshold_x = (start_threshold / max_level) * canvas_width
-        stop_threshold_x = (stop_threshold / max_level) * canvas_width
+        threshold_x = self._threshold_line_x(self.start_threshold_var.get(), canvas_width)
+        stop_threshold_x = self._threshold_line_x(self.stop_threshold_var.get(), canvas_width)
 
         # Lösche alte Linien
         if self.threshold_line:
