@@ -50,13 +50,16 @@ class ConfigMixin:
                     self.sample_rate_var.set(saved_rate)
 
                 # Audiogeräte aus Konfiguration setzen (falls vorhanden)
-                input_device = config.get('input_device', '')
-                output_device = config.get('output_device', '')
-
-                if input_device and input_device in self.input_devices:
-                    self.input_device_var.set(input_device)
-                if output_device and output_device in self.output_devices:
-                    self.output_device_var.set(output_device)
+                # Zuerst wird anhand des indexunabhängigen Rohnamens gesucht, da sich
+                # der PortAudio-Index von USB-Soundkarten zwischen Programmstarts
+                # verschieben kann (z.B. durch Ein-/Ausstecken anderer Geräte).
+                # Erst wenn das fehlschlägt, wird der frühere Anzeigename exakt verglichen.
+                self._restore_device_selection(
+                    self.input_device_var, self.input_devices, self.input_device_raw_names,
+                    config.get('input_device', ''), config.get('input_device_raw', ''))
+                self._restore_device_selection(
+                    self.output_device_var, self.output_devices, self.output_device_raw_names,
+                    config.get('output_device', ''), config.get('output_device_raw', ''))
 
             except Exception as e:
                 print(f"Fehler beim Laden der Konfiguration: {e}")
@@ -79,6 +82,23 @@ class ConfigMixin:
         state = tk.NORMAL if self.equalizer_enabled else tk.DISABLED
         for band in self.eq_bands:
             self.eq_scales[band].config(state=state)
+
+    def _restore_device_selection(self, device_var, devices, raw_names, saved_name, saved_raw_name):
+        """Stellt eine gespeicherte Geräteauswahl wieder her.
+
+        Sucht zuerst per indexunabhängigem Rohnamen (überlebt Index-Verschiebungen
+        durch neu erkannte/entfernte Geräte), bevor auf den exakten, indexbehafteten
+        Anzeigenamen aus älteren Konfigurationsdateien zurückgefallen wird. Wird
+        nichts gefunden, bleibt die von load_audio_devices() vorgewählte Standard-
+        auswahl (bevorzugt ein Stereo-Gerät) bestehen.
+        """
+        if saved_raw_name:
+            for name, raw in raw_names.items():
+                if raw == saved_raw_name:
+                    device_var.set(name)
+                    return
+        if saved_name and saved_name in devices:
+            device_var.set(saved_name)
 
     def save_config(self):
         """Speichert Konfiguration in Datei"""
@@ -104,7 +124,9 @@ class ConfigMixin:
                 'sample_rate': self.RATE,
                 'duplex_mode': self.is_duplex_mode,
                 'input_device': self.input_device_var.get(),
-                'output_device': self.output_device_var.get()
+                'input_device_raw': self.input_device_raw_names.get(self.input_device_var.get(), ''),
+                'output_device': self.output_device_var.get(),
+                'output_device_raw': self.output_device_raw_names.get(self.output_device_var.get(), '')
             }
 
             with open(self.config_file, 'w') as f:

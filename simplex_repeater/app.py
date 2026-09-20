@@ -76,6 +76,11 @@ class SimplexRepeater(AudioEngineMixin, DevicesMixin, ProcessingMixin,
         # PyAudio Initialisierung
         self.p = pyaudio.PyAudio()
 
+        # Indexunabhängige Gerätenamen für stabilen Abgleich (z.B. beim Refresh
+        # oder beim Wiederherstellen der Auswahl aus der Konfiguration)
+        self.input_device_raw_names = {}
+        self.output_device_raw_names = {}
+
         # GUI erstellen
         self.create_gui()
 

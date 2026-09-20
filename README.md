@@ -9,14 +9,15 @@ Ein flexibler Audio-Repeater mit grafischer Benutzeroberfläche, der Audio aufni
 - **Einstellbarer Abbruchpegel**: Pegel zum automatischen Stoppen der Aufnahme
 - **Pegeldämpfung**: Attack/Release-Parameter für weichere Pegelübergänge
 - **Einstellbare Aufnahmezeit**: 1-120 Sekunden Aufnahmedauer
-- **Auswählbare Audio-Quellen**: Wahl des Eingabe- und Ausgabegeräts
+- **Auswählbare Audio-Quellen**: Wahl des Eingabe- und Ausgabegeräts, unterstützt Mono- und Stereo-Geräte
+- **Geräteliste aktualisieren**: Neu angeschlossene Audio-Geräte (z.B. USB-Soundkarten) können ohne Neustart des Programms erkannt werden
 - **Echtzeit-Pegelanzeige**: Visualisierung des aktuellen Audiopegels mit Schwellwert-Linien
-- **Persistente Konfiguration**: Alle Einstellungen werden automatisch gespeichert
+- **Persistente Konfiguration**: Alle Einstellungen werden automatisch gespeichert, die Geräteauswahl bleibt auch bei geänderten Geräte-Indizes erhalten
 - **Kein Speichern von Audio**: Audio wird nur im Speicher gehalten
 
 ### Equalizer (Ausgangsbereich)
-- **5-Band-Equalizer**: Frequenzbänder bei 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz
-- **Verstärkungsbereich**: -12 dB bis +12 dB pro Band
+- **6-Band-Equalizer**: Frequenzbänder bei 150Hz, 1kHz, 3kHz, 6kHz, 9kHz, 12kHz
+- **Verstärkungsbereich**: -30 dB bis +30 dB pro Band
 - **Echtzeit-Verarbeitung**: Equalizer wird während der Wiedergabe angewendet
 - **Butterworth-Filter**: Hochwertige Bandpass-Filter für saubere Frequenztrennung
 
@@ -61,14 +62,20 @@ python simplex_repeater.py
 5. **Audio-Eingabe**: Auswahl des Aufnahmegeräts
 
 #### Ausgangsbereich (rechts)
-1. **Equalizer**: 5 Frequenzbänder mit jeweils -12 bis +12 dB Verstärkung
-   - 60 Hz: Tiefe Bässe
-   - 230 Hz: Obere Bässe
-   - 910 Hz: Untere Mitten
-   - 3.6 kHz: Obere Mitten/Präsenz
-   - 14 kHz: Höhen
+1. **Equalizer**: 6 Frequenzbänder mit jeweils -30 bis +30 dB Verstärkung
+   - 150 Hz: Tiefe Bässe
+   - 1 kHz: Untere Mitten
+   - 3 kHz: Obere Mitten
+   - 6 kHz: Präsenz
+   - 9 kHz: Höhen
+   - 12 kHz: Obere Höhen
 2. **Audio-Ausgabe**: Auswahl des Wiedergabegeräts
 3. **Wiedergabeverstärkung**: Globale Verstärkung -20 bis +20 dB
+
+#### Geräte aktualisieren
+- Der Button **"Geräte aktualisieren"** unterhalb von Start/Stop lädt die Liste der Audio-Geräte neu
+- Notwendig, wenn eine USB-Soundkarte erst nach dem Programmstart angeschlossen wurde, da PortAudio Geräte nur einmal beim Start erfasst
+- Nur im gestoppten Zustand verfügbar
 
 #### Modus-Umschaltung
 - **Zu Duplex wechseln**: Wechselt zum gleichzeitigen Aufnahme-/Wiedergabebetrieb
@@ -78,8 +85,8 @@ python simplex_repeater.py
 ## Technische Details
 
 - **Audio-Format**: 16-bit PCM
-- **Samplerate**: 44100 Hz
-- **Kanäle**: Mono (1)
+- **Samplerate**: einstellbar zwischen 8000 Hz und 44100 Hz
+- **Kanäle**: Mono oder Stereo, abhängig vom gewählten Ein-/Ausgabegerät (automatische Kanalanpassung)
 - **Puffergröße**: 1024 Frames
 - **Equalizer**: 4. Ordnung Butterworth Bandpass/Lowpass/Highpass Filter
 - **Threading**: Separate Threads für GUI und Audio-Verarbeitung
@@ -108,6 +115,7 @@ python simplex_repeater.py
 - **Rückkopplung im Duplex-Modus**: Ohne elektrische Entkopplung zwischen Ausgang und Eingang entsteht eine Aufnahme-Wiedergabe-Schleife. Dies lässt sich nicht durch Software vermeiden.
 - **Equalizer-Latenz**: Der Equalizer fügt eine minimale Verarbeitungslatenz hinzu
 - **CPU-Last**: Der Duplex-Modus mit aktivem Equalizer benötigt mehr CPU-Ressourcen
+- **Geräteerkennung**: Neu angeschlossene Geräte werden erst nach einem Klick auf "Geräte aktualisieren" erkannt, da PortAudio Geräte nur beim (Neu-)Initialisieren erfasst
 
 ## Lizenz
 

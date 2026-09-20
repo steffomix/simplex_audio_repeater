@@ -237,6 +237,7 @@ class CallbacksMixin:
         self.input_device_combo.config(state=tk.DISABLED)
         self.output_device_combo.config(state=tk.DISABLED)
         self.sample_rate_combo.config(state=tk.DISABLED)
+        self.refresh_devices_button.config(state=tk.DISABLED)
         self.update_status("Simplex Bereit - Warte auf überschreiten des Startpegels...", 'green')
 
         # Audio-Thread starten
@@ -254,6 +255,7 @@ class CallbacksMixin:
         self.input_device_combo.config(state='readonly')
         self.output_device_combo.config(state='readonly')
         self.sample_rate_combo.config(state='readonly')
+        self.refresh_devices_button.config(state=tk.NORMAL)
         self.update_status("Gestoppt", 'red')
         self.progress['value'] = 0
         # Konfiguration speichern

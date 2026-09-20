@@ -84,6 +84,10 @@ class GuiMixin:
                                      state=tk.DISABLED)
         self.stop_button.pack(side=tk.LEFT, padx=5)
 
+        self.refresh_devices_button = ttk.Button(button_frame, text="Geräte aktualisieren",
+                                                 command=self.refresh_audio_devices, width=20)
+        self.refresh_devices_button.pack(side=tk.LEFT, padx=5)
+
         # Grid-Konfiguration
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
