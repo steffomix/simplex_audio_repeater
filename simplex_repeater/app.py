@@ -8,6 +8,7 @@ from collections import deque
 from .audio.engine import AudioEngineMixin
 from .audio.devices import DevicesMixin
 from .audio.processing import ProcessingMixin
+from .audio.debug_record import DebugRecordMixin
 from .equalizer.equalizer import EqualizerMixin
 from .gui.main_window import GuiMixin
 from .gui.callbacks import CallbacksMixin
@@ -16,8 +17,8 @@ from .pipewire.patchbay import PipeWirePatchbayMixin
 
 
 class SimplexRepeater(AudioEngineMixin, DevicesMixin, ProcessingMixin,
-                      EqualizerMixin, GuiMixin, CallbacksMixin, ConfigMixin,
-                      PipeWirePatchbayMixin):
+                      DebugRecordMixin, EqualizerMixin, GuiMixin, CallbacksMixin,
+                      ConfigMixin, PipeWirePatchbayMixin):
 
     def __init__(self, root):
         self.root = root

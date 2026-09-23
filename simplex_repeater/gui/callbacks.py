@@ -254,7 +254,13 @@ class CallbacksMixin:
                 max_change = (self.current_damped_level - level) * (time_elapsed * 1000 / fall_time_ms)
                 self.current_damped_level = max(self.current_damped_level - max_change, level)
 
-        self._update_level_gui(self.current_damped_level)
+        # Tkinter ist nicht thread-sicher: die eigentliche Canvas-Aktualisierung darf
+        # nicht direkt aus dem Audio-Thread erfolgen (führt zu Stockungen und damit zu
+        # Buffer-Overflows/verlorenen Audio-Chunks). Deshalb hier throtteln und über
+        # root.after() in den Main-Thread verlagern.
+        if current_time - self.last_gui_update_time >= 0.03:
+            self.last_gui_update_time = current_time
+            self.root.after(0, self._update_level_gui, self.current_damped_level)
 
     def _update_level_gui(self, level):
         """Aktualisiert die GUI für Pegelanzeige (wird nur periodisch aufgerufen)"""

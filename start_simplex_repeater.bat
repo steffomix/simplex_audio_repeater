@@ -116,7 +116,7 @@ if not exist "requirements.txt" (
 
 echo Installiere pip-Pakete aus requirements.txt...
 echo.
-python -m pip install --upgrade pip >nul 2>&1
+python -m pip install --upgrade pip setuptools wheel >nul 2>&1
 python -m pip install -r requirements.txt
 if %errorlevel% neq 0 (
     echo.

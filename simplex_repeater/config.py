@@ -44,8 +44,12 @@ class ConfigMixin:
                 self.equalizer_enabled = equalizer_enabled
 
                 # Abtastrate laden
-                saved_rate = config.get('sample_rate', 22000)
-                if saved_rate in [8000, 16000, 22000, 32000, 44100]:
+                # HINWEIS: 22000 Hz ist keine gueltige PCM-Standardrate (richtig waere 22050) und
+                # wurde von manchen Audiogeraeten (v.a. direkt als "hw:X,Y" ohne PipeWire-Resampling
+                # geoeffnete USB-Interfaces) nicht sauber unterstuetzt - das fuehrte zu falscher
+                # Aufnahmegeschwindigkeit. Alte Konfigurationen mit 22000 werden daher ignoriert.
+                saved_rate = config.get('sample_rate', 44100)
+                if saved_rate in [8000, 11025, 16000, 22050, 32000, 44100, 48000]:
                     self.RATE = saved_rate
                     self.sample_rate_var.set(saved_rate)
 

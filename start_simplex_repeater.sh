@@ -124,7 +124,7 @@ else
 fi
 echo
 
-"$PY" -m pip install --upgrade pip >/dev/null 2>&1
+"$PY" -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1
 
 if ! "$PY" -m pip install -r requirements.txt; then
     echo

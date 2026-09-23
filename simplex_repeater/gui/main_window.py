@@ -296,12 +296,12 @@ class GuiMixin:
         row_right += 1
         ttk.Label(right_frame, text="Abtastrate:").grid(
             row=row_right, column=0, sticky=tk.W, pady=5)
-        self.sample_rate_var = tk.IntVar(value=22000)
+        self.sample_rate_var = tk.IntVar(value=44100)
         sample_rate_frame = ttk.Frame(right_frame)
         sample_rate_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
         self.sample_rate_combo = ttk.Combobox(sample_rate_frame,
                                               textvariable=self.sample_rate_var,
-                                              values=[8000, 16000, 22000, 32000, 44100],
+                                              values=[8000, 11025, 16000, 22050, 32000, 44100, 48000],
                                               state='readonly', width=10)
         self.sample_rate_combo.pack(side=tk.LEFT)
         self.sample_rate_combo.bind('<<ComboboxSelected>>', self.on_sample_rate_changed)
