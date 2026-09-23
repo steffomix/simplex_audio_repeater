@@ -8,7 +8,6 @@ from collections import deque
 from .audio.engine import AudioEngineMixin
 from .audio.devices import DevicesMixin
 from .audio.processing import ProcessingMixin
-from .audio.debug_record import DebugRecordMixin
 from .equalizer.equalizer import EqualizerMixin
 from .gui.main_window import GuiMixin
 from .gui.callbacks import CallbacksMixin
@@ -17,7 +16,7 @@ from .pipewire.patchbay import PipeWirePatchbayMixin
 
 
 class SimplexRepeater(AudioEngineMixin, DevicesMixin, ProcessingMixin,
-                      DebugRecordMixin, EqualizerMixin, GuiMixin, CallbacksMixin,
+                      EqualizerMixin, GuiMixin, CallbacksMixin,
                       ConfigMixin, PipeWirePatchbayMixin):
 
     def __init__(self, root):
@@ -31,7 +30,9 @@ class SimplexRepeater(AudioEngineMixin, DevicesMixin, ProcessingMixin,
         self.CHANNELS = 2  # Standard: Stereo (wird beim Stream-Öffnen aktualisiert)
         self.input_channels = 2  # Tatsächliche Anzahl Eingangskanäle
         self.output_channels = 2  # Tatsächliche Anzahl Ausgangskanäle
-        self.RATE = 44100
+        # Fest auf 48000 Hz: andere Raten fuehren bei manchen USB-Audiogeraeten
+        # (PortAudio/ALSA "hw:X,Y"-Zugriff) zu falscher Aufnahme-/Wiedergabegeschwindigkeit
+        self.RATE = 48000
         # Equalizer-Aktivierung
         self.equalizer_enabled = True
 

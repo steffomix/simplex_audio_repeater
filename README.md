@@ -124,13 +124,44 @@ Oder einfach eines der Starter-Skripte aus dem [Schnellstart](#schnellstart-auch
 ## Technische Details
 
 - **Audio-Format**: 16-bit PCM
-- **Samplerate**: einstellbar zwischen 8000 Hz und 44100 Hz
+- **Samplerate**: fest auf 48000 Hz (siehe [Abtastrate ändern](#abtastrate-ändern))
 - **Kanäle**: Mono oder Stereo, abhängig vom gewählten Ein-/Ausgabegerät (automatische Kanalanpassung)
 - **Puffergröße**: 1024 Frames
 - **Equalizer**: 4. Ordnung Butterworth Bandpass/Lowpass/Highpass Filter
 - **Threading**: Separate Threads für GUI und Audio-Verarbeitung
   - Simplex: Ein Audio-Thread mit sequenzieller Aufnahme/Wiedergabe
   - Duplex: Zwei parallele Threads für kontinuierliche Aufnahme und Wiedergabe
+
+### Abtastrate ändern
+
+Die Abtastrate ist bewusst fest im Code hinterlegt und nicht über die Oberfläche
+einstellbar (kein Dropdown mehr). Grund: Bei manchen USB-Audiogeräten (v.a. bei
+direktem ALSA-Hardwarezugriff, z.B. Geräte mit der Bezeichnung `hw:X,Y`) sorgen
+andere Abtastraten als die native Rate des Geräts für eine falsche Aufnahme-/
+Wiedergabegeschwindigkeit (Audio klingt zu schnell oder zu langsam, obwohl die
+Tonhöhe unverändert bleibt). 48000 Hz hat sich dabei als die zuverlässigste,
+universell unterstützte Rate erwiesen.
+
+Falls Ihr Audiogerät eine andere Abtastrate benötigt, können Sie diese manuell
+anpassen:
+
+1. Öffnen Sie `simplex_repeater/app.py` in einem Texteditor
+2. Suchen Sie im `__init__` der Klasse `SimplexRepeater` die Zeile:
+   ```python
+   self.RATE = 48000
+   ```
+3. Ändern Sie den Wert auf die gewünschte Abtastrate (z.B. `44100` oder `22050`)
+4. Speichern und das Programm neu starten
+
+**Wichtig**: Nach einer Änderung sollten Sie die Aufnahme-/Wiedergabegeschwindigkeit
+testen (z.B. eine kurze Ansage mit bekannter Dauer aufnehmen und per Stoppuhr mit
+der Wiedergabedauer vergleichen). Klingt die Wiedergabe zu schnell oder zu langsam
+bei ansonsten korrekter Tonhöhe, unterstützt Ihr Audiogerät die gewählte Abtastrate
+vermutlich nicht sauber - probieren Sie in diesem Fall eine andere Standardrate
+(8000, 11025, 16000, 22050, 32000, 44100 oder 48000 Hz) oder wählen Sie in den
+Audio-Einstellungen Ihres Betriebssystems (z.B. PipeWire/PulseAudio statt direktem
+ALSA-Hardwarezugriff) ein anderes Eingabe-/Ausgabegerät aus.
+
 
 ## Hinweise
 
@@ -171,6 +202,9 @@ Oder einfach eines der Starter-Skripte aus dem [Schnellstart](#schnellstart-auch
 
 #### Kein Ton/Rückkopplung
 - Siehe [Bekannte Einschränkungen](#bekannte-einschränkungen) unten.
+
+#### Aufnahme/Wiedergabe klingt zu schnell oder zu langsam (Tonhöhe aber korrekt)
+- Ihr Audiogerät kommt vermutlich nicht mit der aktuell verwendeten Abtastrate zurecht. Siehe [Abtastrate ändern](#abtastrate-ändern).
 
 ## Bekannte Einschränkungen
 

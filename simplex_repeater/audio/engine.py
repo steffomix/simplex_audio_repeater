@@ -19,9 +19,6 @@ class AudioEngineMixin:
                 self.root.after(0, self.stop_repeater)
                 return
 
-            # Debug-Aufzeichnung von Ein-/Ausgangsaudio für Fehleranalyse
-            self.start_debug_recording()
-
             # PipeWire-Verbindungen herstellen: kurzer Delay damit PipeWire
             # die neuen ALSA-Nodes registrieren kann, bevor pw-link sie verbindet
             time.sleep(0.5)
@@ -45,10 +42,7 @@ class AudioEngineMixin:
                     self.stream_out.close()
                     self.stream_out = None
 
-            self.stop_debug_recording()
-
         except Exception as e:
-            self.stop_debug_recording()
             self.root.after(0, messagebox.showerror, "Fehler",
                           f"Audio-Fehler: {str(e)}")
             self.root.after(0, self.stop_repeater)
@@ -90,11 +84,8 @@ class AudioEngineMixin:
                         self.delayed_playback_buffer.popleft()
 
                     # Aufnahme
-                    _read_t0 = time.perf_counter()
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
-                    _read_seconds = time.perf_counter() - _read_t0
                     data = self.apply_input_gain(data)
-                    self.debug_record_input(data, self.input_channels, _read_seconds)
 
                     # Sofort zum Wiedergabe-Buffer hinzufügen (Performance-kritisch!)
                     self.delayed_playback_buffer.append(data)
@@ -134,7 +125,6 @@ class AudioEngineMixin:
                             # Konvertiere Kanäle falls nötig (z.B. Stereo-Input zu Mono-Output)
                             data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
 
-                            self.debug_record_output(data_for_output, self.output_channels)
                             self.stream_out.write(data_for_output)
                     else:
                         # Buffer leer, warte kurz
@@ -206,7 +196,6 @@ class AudioEngineMixin:
                         # Konvertiere Kanäle falls nötig für Wiedergabe
                         data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
 
-                        self.debug_record_output(data_for_output, self.output_channels)
                         self.stream_out.write(data_for_output)
                     else:
                         # Monitoring deaktiviert, Wiedergabe läuft oder Buffer leer
@@ -229,11 +218,8 @@ class AudioEngineMixin:
                         break
 
                     # Aufnahme
-                    _read_t0 = time.perf_counter()
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
-                    _read_seconds = time.perf_counter() - _read_t0
                     data = self.apply_input_gain(data)
-                    self.debug_record_input(data, self.input_channels, _read_seconds)
 
                     # Füge zum verzögerten Wiedergabe-Buffer hinzu nur wenn Monitoring aktiviert
                     if self.monitoring_enabled:
@@ -305,11 +291,8 @@ class AudioEngineMixin:
                     if chunk_count >= chunks_to_record:
                         break
 
-                    _read_t0 = time.perf_counter()
                     data = self.stream_in.read(self.CHUNK, exception_on_overflow=False)
-                    _read_seconds = time.perf_counter() - _read_t0
                     data = self.apply_input_gain(data)
-                    self.debug_record_input(data, self.input_channels, _read_seconds)
                     chunk_count += 1
 
                     self.audio_buffer.append(data)
@@ -377,7 +360,6 @@ class AudioEngineMixin:
                 # Konvertiere Kanäle falls nötig für Wiedergabe
                 data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
 
-                self.debug_record_output(data_for_output, self.output_channels)
                 self.stream_out.write(data_for_output)
 
                 played_chunks += 1

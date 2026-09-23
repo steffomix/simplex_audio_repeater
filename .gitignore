@@ -3,7 +3,4 @@
 *.pyo
 *.pyd
 
-# Debug-Aufzeichnungen von Audio-Sessions (nur zur lokalen Fehleranalyse)
-debug_record/
-
 venv/*

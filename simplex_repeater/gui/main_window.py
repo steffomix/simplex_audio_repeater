@@ -88,6 +88,10 @@ class GuiMixin:
                                                  command=self.refresh_audio_devices, width=20)
         self.refresh_devices_button.pack(side=tk.LEFT, padx=5)
 
+        self.about_button = ttk.Button(button_frame, text="Info",
+                                       command=self.show_about_dialog, width=10)
+        self.about_button.pack(side=tk.LEFT, padx=5)
+
         # Grid-Konfiguration
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
@@ -292,25 +296,21 @@ class GuiMixin:
         self.output_device_combo.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
         self.output_device_combo.bind('<<ComboboxSelected>>', self.on_output_device_changed)
 
-        # Abtastrate-Auswahl
+        # Abtastrate: fest auf 48000 Hz - siehe repo-Notizen/README: bei diesem
+        # PortAudio/ALSA-Setup funktionieren andere Abtastraten mit manchen
+        # USB-Audiogeräten (v.a. bei raw "hw:X,Y"-Zugriff) nicht korrekt und
+        # verursachen Aufnahmen/Wiedergaben mit falscher Geschwindigkeit.
         row_right += 1
         ttk.Label(right_frame, text="Abtastrate:").grid(
             row=row_right, column=0, sticky=tk.W, pady=5)
-        self.sample_rate_var = tk.IntVar(value=44100)
-        sample_rate_frame = ttk.Frame(right_frame)
-        sample_rate_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
-        self.sample_rate_combo = ttk.Combobox(sample_rate_frame,
-                                              textvariable=self.sample_rate_var,
-                                              values=[8000, 11025, 16000, 22050, 32000, 44100, 48000],
-                                              state='readonly', width=10)
-        self.sample_rate_combo.pack(side=tk.LEFT)
-        self.sample_rate_combo.bind('<<ComboboxSelected>>', self.on_sample_rate_changed)
-        ttk.Label(sample_rate_frame, text="Hz").pack(side=tk.LEFT, padx=5)
+        ttk.Label(right_frame, text=f"{self.RATE} Hz (fest)").grid(
+            row=row_right, column=1, sticky=tk.W, pady=5)
 
-        # Performance-Hinweis
+        # Hinweis zur festen Abtastrate
         row_right += 1
         perf_hint = ttk.Label(right_frame,
-                             text="⚠ Höhere Abtastraten können die Performance\nbeeinträchtigen, besonders mit Equalizer.",
+                             text="⚠ Abtastrate ist fest auf 48000 Hz, da andere Werte bei\n"
+                                  "manchen USB-Audiogeräten zu falscher Geschwindigkeit führen.",
                              font=('Arial', 8, 'italic'),
                              foreground='#666666',
                              justify=tk.LEFT)
@@ -358,6 +358,16 @@ class GuiMixin:
                                                    variable=self.equalizer_enabled_var,
                                                    command=self.on_equalizer_toggle)
         self.equalizer_checkbox.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(5, 10))
+
+
+        # Hinweis Equalizer ist performance hungrig
+        row_right += 1
+        perf_hint_eq = ttk.Label(right_frame,
+                                 text="⚠ Der Equalizer kann die Performance beeinträchtigen.",
+                                 font=('Arial', 8, 'italic'),
+                                 foreground='#666666',
+                                 justify=tk.LEFT)
+        perf_hint_eq.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
 
         # Equalizer-Bänder (6 Bänder)
         self.eq_scales = {}

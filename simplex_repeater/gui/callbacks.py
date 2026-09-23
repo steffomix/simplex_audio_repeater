@@ -1,7 +1,8 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import threading
 import time
+import webbrowser
 
 
 class CallbacksMixin:
@@ -74,15 +75,41 @@ class CallbacksMixin:
         """Wird aufgerufen wenn Monitoring aktiviert/deaktiviert wird"""
         self.monitoring_enabled = self.monitoring_var.get()
 
-    def on_sample_rate_changed(self, event=None):
-        """Wird aufgerufen wenn Abtastrate geändert wird"""
-        if self.running:
-            messagebox.showwarning("Warnung",
-                "Bitte stoppen Sie den Repeater, bevor Sie die Abtastrate ändern!")
-            # Setze zurück auf alte Rate
-            self.sample_rate_combo.set(self.RATE)
-        else:
-            self.RATE = self.sample_rate_var.get()
+    def show_about_dialog(self):
+        """Zeigt ein Info-Popup mit Projektseite und Lizenzhinweis"""
+        project_url = "https://github.com/steffomix/simplex_audio_repeater"
+        license_url = "https://raw.githubusercontent.com/steffomix/simplex_audio_repeater/refs/heads/main/LICENSE"
+
+        about_win = tk.Toplevel(self.root)
+        about_win.title("Über Simplex/Duplex Repeater")
+        about_win.resizable(False, False)
+        about_win.transient(self.root)
+        about_win.grab_set()
+
+        frame = ttk.Frame(about_win, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Simplex/Duplex Repeater", font=('Arial', 14, 'bold')).pack(pady=(0, 10))
+        ttk.Label(frame, text="Ein flexibler Audio-Repeater mit grafischer Benutzeroberfläche.",
+                  wraplength=320, justify=tk.CENTER).pack(pady=(0, 15))
+
+        def add_link(label_text, url):
+            ttk.Label(frame, text=label_text).pack()
+            link = ttk.Label(frame, text=url, foreground='#1a73e8', cursor='hand2',
+                             font=('Arial', 9, 'underline'), wraplength=320)
+            link.pack(pady=(0, 10))
+            link.bind('<Button-1>', lambda e, u=url: webbrowser.open(u))
+
+        add_link("Projektseite:", project_url)
+        add_link("Lizenz (MIT):", license_url)
+
+        ttk.Button(frame, text="Schließen", command=about_win.destroy).pack(pady=(5, 0))
+
+        # Relativ zum Hauptfenster zentrieren
+        about_win.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (about_win.winfo_width() // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (about_win.winfo_height() // 2)
+        about_win.geometry(f"+{x}+{y}")
 
     def toggle_mode(self):
         """Wechselt zwischen Simplex und Duplex Modus"""
@@ -310,10 +337,9 @@ class CallbacksMixin:
         self.running = True
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
-        # Deaktiviere Geräte- und Abtastrate-Dropdowns während Betrieb
+        # Deaktiviere Geräte-Dropdowns während Betrieb
         self.input_device_combo.config(state=tk.DISABLED)
         self.output_device_combo.config(state=tk.DISABLED)
-        self.sample_rate_combo.config(state=tk.DISABLED)
         self.refresh_devices_button.config(state=tk.DISABLED)
         self.update_status("Simplex Bereit - Warte auf überschreiten des Startpegels...", 'green')
 
@@ -328,10 +354,9 @@ class CallbacksMixin:
         self.is_playing = False
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
-        # Aktiviere Geräte- und Abtastrate-Dropdowns wieder
+        # Aktiviere Geräte-Dropdowns wieder
         self.input_device_combo.config(state='readonly')
         self.output_device_combo.config(state='readonly')
-        self.sample_rate_combo.config(state='readonly')
         self.refresh_devices_button.config(state=tk.NORMAL)
         self.update_status("Gestoppt", 'red')
         self.progress['value'] = 0
