@@ -58,7 +58,7 @@ class SimplexRepeater(AudioEngineMixin, DevicesMixin, ProcessingMixin,
         self.last_gui_update_time = 0
 
         # Equalizer-Einstellungen (6 Bänder)
-        self.eq_bands = [150, 1000, 3000, 6000, 9000, 12000]  # Mittelpunkte in Hz
+        self.eq_bands = [10, 1000, 2000, 4000, 6000, 8000]  # Mittelpunkte in Hz
         self.eq_gains = {}  # Dictionary für Gain-Werte (dB)
         for band in self.eq_bands:
             self.eq_gains[band] = tk.DoubleVar(value=0.0)

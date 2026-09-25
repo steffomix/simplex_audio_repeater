@@ -140,6 +140,8 @@ class GuiMixin:
         self.input_gain_scale = ttk.Scale(input_gain_frame, from_=-20.0, to=20.0,
                                           variable=self.input_gain_var, orient=tk.HORIZONTAL)
         self.input_gain_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.input_gain_scale.bind('<Double-Button-1>',
+                                   lambda e: self.on_slider_double_click(self.input_gain_var))
         self.input_gain_label = ttk.Label(input_gain_frame, text="0.0 dB")
         self.input_gain_label.pack(side=tk.LEFT, padx=5)
         self.input_gain_var.trace('w', self.update_input_gain_label)
@@ -347,6 +349,8 @@ class GuiMixin:
         self.gain_scale = ttk.Scale(gain_frame, from_=-20.0, to=20.0,
                                     variable=self.gain_var, orient=tk.HORIZONTAL)
         self.gain_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.gain_scale.bind('<Double-Button-1>',
+                             lambda e: self.on_slider_double_click(self.gain_var))
         self.gain_label = ttk.Label(gain_frame, text="0.0 dB")
         self.gain_label.pack(side=tk.LEFT, padx=5)
         self.gain_var.trace('w', self.update_gain_label)
@@ -390,9 +394,11 @@ class GuiMixin:
             eq_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
 
             # Slider
-            eq_scale = ttk.Scale(eq_frame, from_=-30.0, to=30.0,
+            eq_scale = ttk.Scale(eq_frame, from_=-60.0, to=60.0,
                                 variable=self.eq_gains[band], orient=tk.HORIZONTAL)
             eq_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            eq_scale.bind('<Double-Button-1>',
+                          lambda e, b=band: self.on_slider_double_click(self.eq_gains[b]))
             self.eq_scales[band] = eq_scale
 
             # Label für aktuellen Wert

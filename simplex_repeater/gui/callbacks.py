@@ -75,6 +75,10 @@ class CallbacksMixin:
         """Wird aufgerufen wenn Monitoring aktiviert/deaktiviert wird"""
         self.monitoring_enabled = self.monitoring_var.get()
 
+    def on_slider_double_click(self, var, event=None):
+        """Setzt einen Schieberegler per Doppelklick auf 0 zurück"""
+        var.set(0.0)
+
     def show_about_dialog(self):
         """Zeigt ein Info-Popup mit Projektseite und Lizenzhinweis"""
         project_url = "https://github.com/steffomix/simplex_audio_repeater"
