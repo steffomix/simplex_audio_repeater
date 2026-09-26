@@ -12,12 +12,11 @@ from .equalizer.equalizer import EqualizerMixin
 from .gui.main_window import GuiMixin
 from .gui.callbacks import CallbacksMixin
 from .config import ConfigMixin
-from .pipewire.patchbay import PipeWirePatchbayMixin
 
 
 class SimplexRepeater(AudioEngineMixin, DevicesMixin, ProcessingMixin,
                       EqualizerMixin, GuiMixin, CallbacksMixin,
-                      ConfigMixin, PipeWirePatchbayMixin):
+                      ConfigMixin):
 
     def __init__(self, root):
         self.root = root
