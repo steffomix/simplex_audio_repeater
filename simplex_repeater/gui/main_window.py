@@ -120,24 +120,20 @@ class GuiMixin:
 
         # Titel Pegeleinstellungen
         row_left += 1
-        ttk.Label(left_frame, text="Pegeleinstellungen:", font=('Arial', 11, 'bold')).grid(
+        ttk.Label(left_frame, text="Eingangspegel:", font=('Arial', 11, 'bold')).grid(
             row=row_left, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
-
-        # Monitoring aktivieren (Checkbox)
-        row_left += 1
-        self.monitoring_var = tk.BooleanVar(value=False)
-        self.monitoring_checkbox = ttk.Checkbutton(left_frame, text="Simplex Monitoring aktivieren (Duplex-Modus)",
-                                                    variable=self.monitoring_var,
-                                                    command=self.on_monitoring_toggle)
-        self.monitoring_checkbox.grid(row=row_left, column=0, columnspan=2, sticky=tk.W, pady=5)
 
         # Eingangsverstärker-Regler (direkt über dem Pegelbalken)
         row_left += 1
-        ttk.Label(left_frame, text="Eingangsverstärker:").grid(
-            row=row_left, column=0, sticky=tk.W, pady=5)
+        input_gain_title_frame = ttk.Frame(left_frame)
+        input_gain_title_frame.grid(row=row_left, column=0, sticky=tk.W, pady=5)
+        self.input_auto_level_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(input_gain_title_frame, variable=self.input_auto_level_var,
+                        command=self.on_input_auto_level_toggle).pack(side=tk.LEFT)
+        ttk.Label(input_gain_title_frame, text=":Auto | Eingang:").pack(side=tk.LEFT)
         input_gain_frame = ttk.Frame(left_frame)
         input_gain_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
-        self.input_gain_scale = ttk.Scale(input_gain_frame, from_=-20.0, to=20.0,
+        self.input_gain_scale = ttk.Scale(input_gain_frame, from_=-30.0, to=30.0,
                                           variable=self.input_gain_var, orient=tk.HORIZONTAL)
         self.input_gain_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.input_gain_scale.bind('<Double-Button-1>',
@@ -181,6 +177,14 @@ class GuiMixin:
         self.stop_threshold_label = ttk.Label(stop_threshold_frame, text="100")
         self.stop_threshold_label.pack(side=tk.LEFT, padx=5)
         self.stop_threshold_var.trace_add('write', self.update_stop_threshold_label)
+
+        # Monitoring aktivieren (Checkbox)
+        row_left += 1
+        self.monitoring_var = tk.BooleanVar(value=False)
+        self.monitoring_checkbox = ttk.Checkbutton(left_frame, text="Pegel Monitoring im Duplex-Modus (Rechenintensiv!)",
+                                                    variable=self.monitoring_var,
+                                                    command=self.on_monitoring_toggle)
+        self.monitoring_checkbox.grid(row=row_left, column=0, columnspan=2, sticky=tk.W, pady=5)
 
         # Canvas für Pegelanzeige
         row_left += 1
@@ -268,7 +272,7 @@ class GuiMixin:
 
         # Totzeit-Einstellung (nur im Simplex-Modus relevant)
         row_left += 1
-        ttk.Label(left_frame, text="Pause nach Wiedergabe:").grid(
+        ttk.Label(left_frame, text="Pause nach Wiedergabe: ").grid(
             row=row_left, column=0, sticky=tk.W, pady=5)
         dead_time_frame = ttk.Frame(left_frame)
         dead_time_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
@@ -305,22 +309,21 @@ class GuiMixin:
         row_right += 1
         ttk.Label(right_frame, text="Abtastrate:").grid(
             row=row_right, column=0, sticky=tk.W, pady=5)
-        ttk.Label(right_frame, text=f"{self.RATE} Hz (fest)").grid(
-            row=row_right, column=1, sticky=tk.W, pady=5)
+        ttk.Label(right_frame, text=f"{self.RATE} Hz*").grid(
+            row=row_right, column=1, sticky=tk.W, pady=0)
 
         # Hinweis zur festen Abtastrate
         row_right += 1
         perf_hint = ttk.Label(right_frame,
-                             text="⚠ Abtastrate ist fest auf 48000 Hz, da andere Werte bei\n"
-                                  "manchen USB-Audiogeräten zu falscher Geschwindigkeit führen.",
+                             text="* Falsche Abtastrate führt zu falscher Wiedergabegeschwindigkeit.\n  Kann in app.py angepasst werden.",
                              font=('Arial', 8, 'italic'),
                              foreground='#666666',
                              justify=tk.LEFT)
-        perf_hint.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        perf_hint.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 0))
 
         # Wiedergabeverzögerung-Einstellung (nur im Duplex-Modus relevant)
         row_right += 1
-        ttk.Label(right_frame, text="Wiedergabeverzögerung:").grid(
+        ttk.Label(right_frame, text="Verzögerung:").grid(
             row=row_right, column=0, sticky=tk.W, pady=5)
         playback_delay_frame = ttk.Frame(right_frame)
         playback_delay_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
@@ -333,45 +336,39 @@ class GuiMixin:
         self.playback_delay_label.pack(side=tk.LEFT, padx=5)
         self.playback_delay_var.trace('w', self.update_playback_delay_label)
 
-        # Titel Equalizer
+        # Titel Pegeleinstellungen
         row_right += 1
-        ttk.Label(right_frame, text="Equalizer:", font=('Arial', 11, 'bold')).grid(
+        ttk.Label(right_frame, text="Ausgangspegel:", font=('Arial', 11, 'bold')).grid(
             row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(10, 5))
 
         # Verstärkungsfaktor-Einstellung
         row_right += 1
-        ttk.Label(right_frame, text="Master:").grid(
-            row=row_right, column=0, sticky=tk.W, pady=5)
+        gain_title_frame = ttk.Frame(right_frame)
+        gain_title_frame.grid(row=row_right, column=0, sticky=tk.W, pady=5)
+        self.output_auto_level_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(gain_title_frame, variable=self.output_auto_level_var,
+                        command=self.on_output_auto_level_toggle).pack(side=tk.LEFT)
+        ttk.Label(gain_title_frame, text=":Auto | Ausgang: ").pack(side=tk.LEFT)
 
         gain_frame = ttk.Frame(right_frame)
         gain_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
         self.gain_var = tk.DoubleVar(value=0.0)
-        self.gain_scale = ttk.Scale(gain_frame, from_=-20.0, to=20.0,
+        self.gain_scale = ttk.Scale(gain_frame, from_=-30.0, to=30.0,
                                     variable=self.gain_var, orient=tk.HORIZONTAL)
         self.gain_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.gain_scale.bind('<Double-Button-1>',
                              lambda e: self.on_slider_double_click(self.gain_var))
         self.gain_label = ttk.Label(gain_frame, text="0.0 dB")
         self.gain_label.pack(side=tk.LEFT, padx=5)
-        self.gain_var.trace('w', self.update_gain_label)
-
+        self.gain_var.trace_add('write', self.update_gain_label)
+        
         # Equalizer Aktivieren/Deaktivieren
         row_right += 1
         self.equalizer_enabled_var = tk.BooleanVar(value=True)
-        self.equalizer_checkbox = ttk.Checkbutton(right_frame, text="Equalizer aktivieren",
+        self.equalizer_checkbox = ttk.Checkbutton(right_frame, text="Equalizer aktivieren (Rechenintensiv!)",
                                                    variable=self.equalizer_enabled_var,
                                                    command=self.on_equalizer_toggle)
         self.equalizer_checkbox.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(5, 10))
-
-
-        # Hinweis Equalizer ist performance hungrig
-        row_right += 1
-        perf_hint_eq = ttk.Label(right_frame,
-                                 text="⚠ Der Equalizer kann die Performance beeinträchtigen.",
-                                 font=('Arial', 8, 'italic'),
-                                 foreground='#666666',
-                                 justify=tk.LEFT)
-        perf_hint_eq.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
 
         # Equalizer-Bänder (5 Bänder)
         self.eq_scales = {}

@@ -1,7 +1,15 @@
+import time
 import numpy as np
 
 
 class ProcessingMixin:
+
+    # Auto-Pegel (AGC): Zielbereich und Nachregelgeschwindigkeit, gemeinsam für
+    # Eingangsverstärker und Master verwendet (Werte auf der calculate_level()-Skala,
+    # dieselbe Skala wie Start-/Stoppegel)
+    AUTO_LEVEL_TARGET_LOW = 1500
+    AUTO_LEVEL_TARGET_HIGH = 5000
+    AUTO_LEVEL_SPEED_DB_PER_SEC = 6.0
 
     def convert_channels(self, data, from_channels, to_channels):
         """Konvertiert Audio zwischen Mono und Stereo
@@ -49,38 +57,66 @@ class ProcessingMixin:
             # Mono: Direkt Mean der Absolutwerte
             return np.abs(audio_np).mean()
 
+    def _adjust_auto_gain(self, gain_var, level, last_time_attr):
+        """Regelt gain_var (dB) automatisch nach, um level im Zielbereich zu halten"""
+        now = time.time()
+        elapsed = now - getattr(self, last_time_attr, now)
+        setattr(self, last_time_attr, now)
+
+        # Große Sprünge (z.B. direkt nach dem Aktivieren) ignorieren statt aufzuholen
+        if elapsed <= 0 or elapsed > 1.0:
+            return
+
+        max_step_db = self.AUTO_LEVEL_SPEED_DB_PER_SEC * elapsed
+        current_gain = gain_var.get()
+
+        if level > self.AUTO_LEVEL_TARGET_HIGH:
+            gain_var.set(round(max(-20.0, current_gain - max_step_db), 1))
+        elif level < self.AUTO_LEVEL_TARGET_LOW:
+            gain_var.set(round(min(20.0, current_gain + max_step_db), 1))
+
     def apply_gain(self, data):
         """Wendet Verstärkung auf Audio-Daten an (Stereo-kompatibel)"""
         gain_db = self.gain_var.get()
 
         # Wenn Verstärkung 0 dB ist, gib Originaldaten zurück
         if gain_db == 0.0:
-            return data
+            result = data
+        else:
+            # Konvertiere dB zu linearem Faktor: gain_linear = 10^(gain_dB / 20)
+            gain_linear = 10.0 ** (gain_db / 20.0)
 
-        # Konvertiere dB zu linearem Faktor: gain_linear = 10^(gain_dB / 20)
-        gain_linear = 10.0 ** (gain_db / 20.0)
+            # Konvertiere Bytes zu numpy Array (funktioniert für Mono und Stereo)
+            audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
 
-        # Konvertiere Bytes zu numpy Array (funktioniert für Mono und Stereo)
-        audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+            # Wende Verstärkung an (auf alle Kanäle)
+            audio_data *= gain_linear
 
-        # Wende Verstärkung an (auf alle Kanäle)
-        audio_data *= gain_linear
+            # Clipping vermeiden (begrenze auf int16 Bereich)
+            audio_data = np.clip(audio_data, -32768, 32767)
 
-        # Clipping vermeiden (begrenze auf int16 Bereich)
-        audio_data = np.clip(audio_data, -32768, 32767)
+            result = audio_data.astype(np.int16).tobytes()
 
-        # Zurück zu int16 konvertieren
-        return audio_data.astype(np.int16).tobytes()
+        if self.output_auto_level_var.get():
+            self._adjust_auto_gain(self.gain_var, self.calculate_level(result), '_output_agc_last_time')
+
+        return result
 
     def apply_input_gain(self, data):
         """Wendet Eingangsverstärkung auf rohe Aufnahmedaten an"""
         gain_db = self.input_gain_var.get()
 
         if gain_db == 0.0:
-            return data
+            result = data
+        else:
+            gain_linear = 10.0 ** (gain_db / 20.0)
+            audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+            audio_data *= gain_linear
+            audio_data = np.clip(audio_data, -32768, 32767)
+            result = audio_data.astype(np.int16).tobytes()
 
-        gain_linear = 10.0 ** (gain_db / 20.0)
-        audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-        audio_data *= gain_linear
-        audio_data = np.clip(audio_data, -32768, 32767)
-        return audio_data.astype(np.int16).tobytes()
+        if self.input_auto_level_var.get():
+            self._adjust_auto_gain(self.input_gain_var, self.calculate_level(result), '_input_agc_last_time')
+
+        return result
+

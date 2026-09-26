@@ -22,6 +22,8 @@ class ConfigMixin:
                 self.dead_time_var.set(config.get('dead_time', 2.0))
                 self.gain_var.set(config.get('gain', 0.0))
                 self.input_gain_var.set(config.get('input_gain', 0.0))
+                self.input_auto_level_var.set(config.get('input_auto_level', False))
+                self.output_auto_level_var.set(config.get('output_auto_level', False))
 
                 # Equalizer-Einstellungen laden
                 eq_config = config.get('equalizer', {})
@@ -83,6 +85,10 @@ class ConfigMixin:
         for band in self.eq_bands:
             self.eq_scales[band].config(state=state)
 
+        # Auto-Pegel-Status auf die Regler anwenden
+        self.on_input_auto_level_toggle()
+        self.on_output_auto_level_toggle()
+
     def _restore_device_selection(self, device_var, devices, raw_names, saved_name, saved_raw_name):
         """Stellt eine gespeicherte Geräteauswahl wieder her.
 
@@ -118,6 +124,8 @@ class ConfigMixin:
                 'dead_time': self.dead_time_var.get(),
                 'gain': self.gain_var.get(),
                 'input_gain': self.input_gain_var.get(),
+                'input_auto_level': self.input_auto_level_var.get(),
+                'output_auto_level': self.output_auto_level_var.get(),
                 'playback_delay': self.playback_delay_var.get(),
                 'equalizer': eq_config,
                 'equalizer_enabled': self.equalizer_enabled_var.get(),

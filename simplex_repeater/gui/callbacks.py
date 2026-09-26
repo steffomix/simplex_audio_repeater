@@ -75,6 +75,16 @@ class CallbacksMixin:
         """Wird aufgerufen wenn Monitoring aktiviert/deaktiviert wird"""
         self.monitoring_enabled = self.monitoring_var.get()
 
+    def on_input_auto_level_toggle(self):
+        """Wird aufgerufen wenn Auto-Pegel für den Eingangsverstärker umgeschaltet wird"""
+        state = tk.DISABLED if self.input_auto_level_var.get() else tk.NORMAL
+        self.input_gain_scale.config(state=state)
+
+    def on_output_auto_level_toggle(self):
+        """Wird aufgerufen wenn Auto-Pegel für den Masterregler umgeschaltet wird"""
+        state = tk.DISABLED if self.output_auto_level_var.get() else tk.NORMAL
+        self.gain_scale.config(state=state)
+
     def on_slider_double_click(self, var, event=None):
         """Setzt einen Schieberegler per Doppelklick auf 0 zurück"""
         var.set(0.0)
