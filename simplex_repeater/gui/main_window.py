@@ -373,7 +373,7 @@ class GuiMixin:
                                  justify=tk.LEFT)
         perf_hint_eq.grid(row=row_right, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
 
-        # Equalizer-Bänder (6 Bänder)
+        # Equalizer-Bänder (5 Bänder)
         self.eq_scales = {}
         self.eq_labels = {}
 

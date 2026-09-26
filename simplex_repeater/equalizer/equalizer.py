@@ -5,17 +5,22 @@ import scipy.signal as signal
 class EqualizerMixin:
 
     def _init_equalizer_filters(self):
-        """Initialisiert die Peaking-EQ-Filter für den Equalizer"""
+        """Initialisiert die EQ-Filter für den Equalizer"""
         for band in self.eq_bands:
             # Initialer Zustand für sosfilt mit 1 Section: Form (1, 2)
             self.eq_filter_states[band] = np.zeros((1, 2))
             # Erstelle initiale SOS-Koeffizienten (Bypass-Filter bei 0 dB)
-            self._update_peaking_filter(band, 0.0)
+            self._update_band_filter(band, 0.0)
 
-    def _update_peaking_filter(self, freq, gain_db):
-        """Erstellt einen Peaking-EQ-Filter als Second-Order Section
+    def _update_band_filter(self, freq, gain_db):
+        """Erstellt den EQ-Filter für ein Band als Second-Order Section
 
-        Verwendet Audio EQ Cookbook Formeln mit korrekter Implementierung
+        Das unterste Band (niedrigste Frequenz in eq_bands) wird als Low-Shelf
+        und das oberste Band (höchste Frequenz) als High-Shelf ausgeführt, damit
+        deren Wirkung nicht wie bei einem Peaking-Filter zu den Rändern des
+        Spektrums hin abfällt, sondern flach in Richtung 0 Hz bzw. Nyquist
+        weitergeführt wird. Alle Bänder dazwischen bleiben Peaking-Filter
+        (Glockenkurve). Verwendet Audio EQ Cookbook Formeln.
         """
         # Überprüfe Nyquist-Frequenz
         nyquist = self.RATE / 2.0
@@ -31,9 +36,6 @@ class EqualizerMixin:
             return
 
         try:
-            # Q-Faktor für etwa 1 Oktave Bandbreite
-            Q = 1.41
-
             # Normalisierte Frequenz (0 bis pi)
             w0 = 2.0 * np.pi * freq / self.RATE
 
@@ -43,18 +45,44 @@ class EqualizerMixin:
 
             cos_w0 = np.cos(w0)
             sin_w0 = np.sin(w0)
-            alpha = sin_w0 / (2.0 * Q)
 
             # Amplitude (Gain-Faktor)
-            A = 10.0 ** (gain_db / 40.0)  # /40 für Peaking EQ (nicht /20)
+            A = 10.0 ** (gain_db / 40.0)  # /40 für Peaking/Shelf-EQ (nicht /20)
 
-            # Biquad-Koeffizienten für Peaking EQ (Audio EQ Cookbook)
-            b0 = 1.0 + alpha * A
-            b1 = -2.0 * cos_w0
-            b2 = 1.0 - alpha * A
-            a0 = 1.0 + alpha / A
-            a1 = -2.0 * cos_w0
-            a2 = 1.0 - alpha / A
+            is_low_shelf = freq == min(self.eq_bands)
+            is_high_shelf = freq == max(self.eq_bands)
+
+            if is_low_shelf or is_high_shelf:
+                # Shelf-Slope S=1: steilste Flanke ohne Überschwinger im Übergang
+                S = 1.0
+                alpha = sin_w0 / 2.0 * np.sqrt((A + 1.0/A) * (1.0/S - 1.0) + 2.0)
+                sqrt_A = np.sqrt(A)
+
+                if is_low_shelf:
+                    b0 = A * ((A + 1.0) - (A - 1.0) * cos_w0 + 2.0 * sqrt_A * alpha)
+                    b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cos_w0)
+                    b2 = A * ((A + 1.0) - (A - 1.0) * cos_w0 - 2.0 * sqrt_A * alpha)
+                    a0 = (A + 1.0) + (A - 1.0) * cos_w0 + 2.0 * sqrt_A * alpha
+                    a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cos_w0)
+                    a2 = (A + 1.0) + (A - 1.0) * cos_w0 - 2.0 * sqrt_A * alpha
+                else:
+                    b0 = A * ((A + 1.0) + (A - 1.0) * cos_w0 + 2.0 * sqrt_A * alpha)
+                    b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cos_w0)
+                    b2 = A * ((A + 1.0) + (A - 1.0) * cos_w0 - 2.0 * sqrt_A * alpha)
+                    a0 = (A + 1.0) - (A - 1.0) * cos_w0 + 2.0 * sqrt_A * alpha
+                    a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cos_w0)
+                    a2 = (A + 1.0) - (A - 1.0) * cos_w0 - 2.0 * sqrt_A * alpha
+            else:
+                # Peaking-EQ (Glockenkurve) für die mittleren Bänder
+                Q = 1.41  # etwa 1 Oktave Bandbreite
+                alpha = sin_w0 / (2.0 * Q)
+
+                b0 = 1.0 + alpha * A
+                b1 = -2.0 * cos_w0
+                b2 = 1.0 - alpha * A
+                a0 = 1.0 + alpha / A
+                a1 = -2.0 * cos_w0
+                a2 = 1.0 - alpha / A
 
             # Normalisiere auf a0=1 und erstelle SOS-Array
             sos = np.array([[
@@ -129,7 +157,7 @@ class EqualizerMixin:
                     continue
 
                 # Aktualisiere Filter-Koeffizienten wenn Gain geändert wurde
-                self._update_peaking_filter(band, gain_db)
+                self._update_band_filter(band, gain_db)
 
                 # Überspringe wenn Filter deaktiviert wurde
                 if self.eq_filter_sos[band] is None:
@@ -191,7 +219,7 @@ class EqualizerMixin:
                 if abs(gain_db) < 0.1:
                     continue
 
-                self._update_peaking_filter(band, gain_db)
+                self._update_band_filter(band, gain_db)
                 if self.eq_filter_sos[band] is None:
                     continue
 
