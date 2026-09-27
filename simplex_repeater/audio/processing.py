@@ -4,12 +4,20 @@ import numpy as np
 
 class ProcessingMixin:
 
+    # dB-Grenzwerte für Ein-/Ausgangsverstärker, app-weit für Slider und Clamping genutzt
+    GAIN_DB_MIN = -30.0
+    GAIN_DB_MAX = 30.0
+
+    # dB-Grenzwerte für die Equalizer-Frequenzbänder, app-weit für Slider und Clamping genutzt
+    EQ_GAIN_DB_MIN = -60.0
+    EQ_GAIN_DB_MAX = 60.0
+
     # Auto-Pegel (AGC): Zielbereich und Nachregelgeschwindigkeit, gemeinsam für
     # Eingangsverstärker und Master verwendet (Werte auf der calculate_level()-Skala,
     # dieselbe Skala wie Start-/Stoppegel)
-    AUTO_LEVEL_TARGET_LOW = 1500
-    AUTO_LEVEL_TARGET_HIGH = 5000
-    AUTO_LEVEL_SPEED_DB_PER_SEC = 6.0
+    AUTO_LEVEL_TARGET_LOW = 4000  # unterhalb: Verstärkung wird erhöht
+    AUTO_LEVEL_TARGET_HIGH = 8000  # oberhalb: Verstärkung wird verringert
+    AUTO_LEVEL_SPEED_DB_PER_SEC = 6.0  # maximale Nachregelgeschwindigkeit in dB/s
 
     def convert_channels(self, data, from_channels, to_channels):
         """Konvertiert Audio zwischen Mono und Stereo
@@ -67,15 +75,15 @@ class ProcessingMixin:
         if elapsed <= 0 or elapsed > 1.0:
             return
 
-        max_step_db = self.AUTO_LEVEL_SPEED_DB_PER_SEC * elapsed
+        max_step_db = self.AUTO_LEVEL_SPEED_DB_PER_SEC * elapsed * 2.0
         current_gain = ouput_gain_var.get()
 
         if level > self.AUTO_LEVEL_TARGET_HIGH:
-            ouput_gain_var.set(round(max(-20.0, current_gain - max_step_db), 1))
+            ouput_gain_var.set(round(max(self.GAIN_DB_MIN, current_gain - max_step_db), 1))
         elif level < self.AUTO_LEVEL_TARGET_LOW:
-            ouput_gain_var.set(round(min(20.0, current_gain + max_step_db), 1))
+            ouput_gain_var.set(round(min(self.GAIN_DB_MAX, current_gain + max_step_db), 1))
 
-    def apply_gain(self, data):
+    def apply_output_gain(self, data):
         """Wendet Verstärkung auf Audio-Daten an (Stereo-kompatibel)"""
         gain_db = self.ouput_gain_var.get()
 
@@ -84,7 +92,7 @@ class ProcessingMixin:
             result = data
         else:
             # Konvertiere dB zu linearem Faktor: gain_linear = 10^(gain_dB / 20)
-            gain_linear = 10.0 ** (gain_db / 20.0)
+            gain_linear = 10.0 ** (gain_db / self.GAIN_DB_MAX / 2.0)
 
             # Konvertiere Bytes zu numpy Array (funktioniert für Mono und Stereo)
             audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
@@ -109,7 +117,7 @@ class ProcessingMixin:
         if gain_db == 0.0:
             result = data
         else:
-            gain_linear = 10.0 ** (gain_db / 20.0)
+            gain_linear = 10.0 ** (gain_db / self.GAIN_DB_MAX / 2.0)
             audio_data = np.frombuffer(data, dtype=np.int16).astype(np.float32)
             audio_data *= gain_linear
             audio_data = np.clip(audio_data, -32768, 32767)

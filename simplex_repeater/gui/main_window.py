@@ -133,7 +133,7 @@ class GuiMixin:
         ttk.Label(input_gain_title_frame, text=":Auto | Eingang:").pack(side=tk.LEFT)
         input_gain_frame = ttk.Frame(left_frame)
         input_gain_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
-        self.input_gain_scale = ttk.Scale(input_gain_frame, from_=-30.0, to=30.0,
+        self.input_gain_scale = ttk.Scale(input_gain_frame, from_=self.GAIN_DB_MIN, to=self.GAIN_DB_MAX,
                                           variable=self.input_gain_var, orient=tk.HORIZONTAL)
         self.input_gain_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.input_gain_scale.bind('<Double-Button-1>',
@@ -353,7 +353,7 @@ class GuiMixin:
         gain_frame = ttk.Frame(right_frame)
         gain_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
         self.ouput_gain_var = tk.DoubleVar(value=0.0)
-        self.gain_scale = ttk.Scale(gain_frame, from_=-30.0, to=30.0,
+        self.gain_scale = ttk.Scale(gain_frame, from_=self.GAIN_DB_MIN, to=self.GAIN_DB_MAX,
                                     variable=self.ouput_gain_var, orient=tk.HORIZONTAL)
         self.gain_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.gain_scale.bind('<Double-Button-1>',
@@ -391,7 +391,7 @@ class GuiMixin:
             eq_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
 
             # Slider
-            eq_scale = ttk.Scale(eq_frame, from_=-60.0, to=60.0,
+            eq_scale = ttk.Scale(eq_frame, from_=self.EQ_GAIN_DB_MIN, to=self.EQ_GAIN_DB_MAX,
                                 variable=self.eq_gains[band], orient=tk.HORIZONTAL)
             eq_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
             eq_scale.bind('<Double-Button-1>',

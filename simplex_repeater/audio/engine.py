@@ -114,7 +114,7 @@ class AudioEngineMixin:
                             data = self.apply_equalizer(data)
 
                             # Verstärkung anwenden
-                            data = self.apply_gain(data)
+                            data = self.apply_output_gain(data)
 
                             # Konvertiere Kanäle falls nötig (z.B. Stereo-Input zu Mono-Output)
                             data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
@@ -185,7 +185,7 @@ class AudioEngineMixin:
                         data = self.apply_equalizer(data)
 
                         # Verstärkung anwenden
-                        data = self.apply_gain(data)
+                        data = self.apply_output_gain(data)
 
                         # Konvertiere Kanäle falls nötig für Wiedergabe
                         data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
@@ -349,7 +349,7 @@ class AudioEngineMixin:
                 data = self.apply_equalizer(data)
 
                 # Verstärkung anwenden
-                data = self.apply_gain(data)
+                data = self.apply_output_gain(data)
 
                 # Konvertiere Kanäle falls nötig für Wiedergabe
                 data_for_output = self.convert_channels(data, self.input_channels, self.output_channels)
