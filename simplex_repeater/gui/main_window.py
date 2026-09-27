@@ -352,15 +352,15 @@ class GuiMixin:
 
         gain_frame = ttk.Frame(right_frame)
         gain_frame.grid(row=row_right, column=1, sticky=(tk.W, tk.E), pady=5)
-        self.gain_var = tk.DoubleVar(value=0.0)
+        self.ouput_gain_var = tk.DoubleVar(value=0.0)
         self.gain_scale = ttk.Scale(gain_frame, from_=-30.0, to=30.0,
-                                    variable=self.gain_var, orient=tk.HORIZONTAL)
+                                    variable=self.ouput_gain_var, orient=tk.HORIZONTAL)
         self.gain_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.gain_scale.bind('<Double-Button-1>',
-                             lambda e: self.on_slider_double_click(self.gain_var))
+                             lambda e: self.on_slider_double_click(self.ouput_gain_var))
         self.gain_label = ttk.Label(gain_frame, text="0.0 dB")
         self.gain_label.pack(side=tk.LEFT, padx=5)
-        self.gain_var.trace_add('write', self.update_gain_label)
+        self.ouput_gain_var.trace_add('write', self.update_gain_label)
         
         # Equalizer Aktivieren/Deaktivieren
         row_right += 1

@@ -57,8 +57,8 @@ class ProcessingMixin:
             # Mono: Direkt Mean der Absolutwerte
             return np.abs(audio_np).mean()
 
-    def _adjust_auto_gain(self, gain_var, level, last_time_attr):
-        """Regelt gain_var (dB) automatisch nach, um level im Zielbereich zu halten"""
+    def _adjust_auto_gain(self, ouput_gain_var, level, last_time_attr):
+        """Regelt ouput_gain_var (dB) automatisch nach, um level im Zielbereich zu halten"""
         now = time.time()
         elapsed = now - getattr(self, last_time_attr, now)
         setattr(self, last_time_attr, now)
@@ -68,16 +68,16 @@ class ProcessingMixin:
             return
 
         max_step_db = self.AUTO_LEVEL_SPEED_DB_PER_SEC * elapsed
-        current_gain = gain_var.get()
+        current_gain = ouput_gain_var.get()
 
         if level > self.AUTO_LEVEL_TARGET_HIGH:
-            gain_var.set(round(max(-20.0, current_gain - max_step_db), 1))
+            ouput_gain_var.set(round(max(-20.0, current_gain - max_step_db), 1))
         elif level < self.AUTO_LEVEL_TARGET_LOW:
-            gain_var.set(round(min(20.0, current_gain + max_step_db), 1))
+            ouput_gain_var.set(round(min(20.0, current_gain + max_step_db), 1))
 
     def apply_gain(self, data):
         """Wendet Verstärkung auf Audio-Daten an (Stereo-kompatibel)"""
-        gain_db = self.gain_var.get()
+        gain_db = self.ouput_gain_var.get()
 
         # Wenn Verstärkung 0 dB ist, gib Originaldaten zurück
         if gain_db == 0.0:
@@ -98,7 +98,7 @@ class ProcessingMixin:
             result = audio_data.astype(np.int16).tobytes()
 
         if self.output_auto_level_var.get():
-            self._adjust_auto_gain(self.gain_var, self.calculate_level(result), '_output_agc_last_time')
+            self._adjust_auto_gain(self.ouput_gain_var, self.calculate_level(result), '_output_agc_last_time')
 
         return result
 

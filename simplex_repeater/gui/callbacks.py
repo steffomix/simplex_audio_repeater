@@ -44,7 +44,7 @@ class CallbacksMixin:
             self.fall_time_label.config(text=f"{value:.0f} ms")
 
     def update_gain_label(self, *args):
-        value = self.gain_var.get()
+        value = self.ouput_gain_var.get()
         self.gain_label.config(text=f"{value:+.1f} dB")
 
     def update_input_gain_label(self, *args):

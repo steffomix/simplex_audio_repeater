@@ -13,14 +13,14 @@ class ConfigMixin:
                     config = json.load(f)
 
                 # Werte aus Konfiguration setzen
-                self.start_threshold_var.set(config.get('start_threshold', 1000))
-                self.stop_threshold_var.set(config.get('stop_threshold', 100))
-                self.rise_time_var.set(config.get('rise_time', 0.0))
-                self.fall_time_var.set(config.get('fall_time', 100.0))
-                self.record_time_var.set(config.get('record_time', 30.0))
-                self.stop_time_var.set(config.get('stop_time', 0.5))
-                self.dead_time_var.set(config.get('dead_time', 2.0))
-                self.gain_var.set(config.get('gain', 0.0))
+                self.start_threshold_var.set(config.get('start_threshold', 700))
+                self.stop_threshold_var.set(config.get('stop_threshold', 500))
+                self.rise_time_var.set(config.get('rise_time', 50.0))
+                self.fall_time_var.set(config.get('fall_time', 500.0))
+                self.record_time_var.set(config.get('record_time', 60.0))
+                self.stop_time_var.set(config.get('stop_time', 0.2))
+                self.dead_time_var.set(config.get('dead_time', 0.0))
+                self.ouput_gain_var.set(config.get('output_gain', 0.0))
                 self.input_gain_var.set(config.get('input_gain', 0.0))
                 self.input_auto_level_var.set(config.get('input_auto_level', False))
                 self.output_auto_level_var.set(config.get('output_auto_level', False))
@@ -30,6 +30,7 @@ class ConfigMixin:
                 for band in self.eq_bands:
                     if str(band) in eq_config:
                         self.eq_gains[band].set(eq_config[str(band)])
+
 
                 # Modus laden
                 saved_duplex_mode = config.get('duplex_mode', False)
@@ -122,19 +123,21 @@ class ConfigMixin:
                 'record_time': self.record_time_var.get(),
                 'stop_time': self.stop_time_var.get(),
                 'dead_time': self.dead_time_var.get(),
-                'gain': self.gain_var.get(),
+                'output_gain': self.ouput_gain_var.get(),
                 'input_gain': self.input_gain_var.get(),
                 'input_auto_level': self.input_auto_level_var.get(),
                 'output_auto_level': self.output_auto_level_var.get(),
                 'playback_delay': self.playback_delay_var.get(),
-                'equalizer': eq_config,
                 'equalizer_enabled': self.equalizer_enabled_var.get(),
-                'sample_rate': self.RATE,
+                'equalizer': eq_config,
                 'duplex_mode': self.is_duplex_mode,
                 'input_device': self.input_device_var.get(),
                 'input_device_raw': self.input_device_raw_names.get(self.input_device_var.get(), ''),
                 'output_device': self.output_device_var.get(),
-                'output_device_raw': self.output_device_raw_names.get(self.output_device_var.get(), '')
+                'output_device_raw': self.output_device_raw_names.get(self.output_device_var.get(), ''),
+                '#_INFO_equalizer': 'Edit frequencies in app.py -> self.eq_bands',
+                '#_INFO_sample_rate': 'Edit sample rate in app.py -> self.RATE',
+                '#_INFO_auto_level': 'Edit AGC settings in audio/processing.py -> AUTO_LEVEL_*'
             }
 
             with open(self.config_file, 'w') as f:
