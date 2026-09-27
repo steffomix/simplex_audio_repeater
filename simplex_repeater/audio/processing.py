@@ -3,7 +3,7 @@ import numpy as np
 
 
 class ProcessingMixin:
-
+    
     # dB-Grenzwerte für Ein-/Ausgangsverstärker, app-weit für Slider und Clamping genutzt
     GAIN_DB_MIN = -30.0
     GAIN_DB_MAX = 30.0
@@ -124,7 +124,11 @@ class ProcessingMixin:
             result = audio_data.astype(np.int16).tobytes()
 
         if self.input_auto_level_var.get():
-            self._adjust_auto_gain(self.input_gain_var, self.calculate_level(result), '_input_agc_last_time')
+            level = self.calculate_level(result)
+            # Nur nachregeln solange tatsächlich ein Signal anliegt (über dem Startpegel),
+            # sonst läuft die Verstärkung bei Stille zum oberen Anschlag hoch
+            if level > self.start_threshold_var.get():
+                self._adjust_auto_gain(self.input_gain_var, level, '_input_agc_last_time')
 
         return result
 
