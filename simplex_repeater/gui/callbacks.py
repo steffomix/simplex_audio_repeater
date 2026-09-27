@@ -242,7 +242,7 @@ class CallbacksMixin:
         if canvas_width <= 1:
             return
 
-        canvas_height = 40
+        canvas_height = 25
 
         # Berechne X-Positionen
         threshold_x = self._threshold_line_x(self.start_threshold_var.get(), canvas_width)
@@ -256,10 +256,10 @@ class CallbacksMixin:
 
         # Zeichne neue Linien
         self.stop_threshold_line = self.level_canvas.create_line(
-            stop_threshold_x, 1, stop_threshold_x, canvas_height+1,
+            stop_threshold_x, 5, stop_threshold_x, canvas_height+1,
             fill='green', width=4, tags='stop_threshold')
         self.threshold_line = self.level_canvas.create_line(
-            threshold_x, 1, threshold_x, canvas_height+1,
+            threshold_x, 1, threshold_x, canvas_height-4,
             fill='red', width=4, tags='start_threshold')
 
     # ── Status- und Pegelanzeige ──────────────────────────────────────────────

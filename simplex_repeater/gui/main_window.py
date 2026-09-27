@@ -188,7 +188,7 @@ class GuiMixin:
 
         # Canvas für Pegelanzeige
         row_left += 1
-        self.level_canvas = tk.Canvas(left_frame, height=40, bg='white',
+        self.level_canvas = tk.Canvas(left_frame, height=25, bg='white',
                                       highlightthickness=1, highlightbackground='gray')
         self.level_canvas.grid(row=row_left, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
 
@@ -230,7 +230,7 @@ class GuiMixin:
         fall_time_frame = ttk.Frame(left_frame)
         fall_time_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.fall_time_var = tk.DoubleVar(value=100.0)
-        self.fall_time_scale = ttk.Scale(fall_time_frame, from_=0.0, to=1000.0,
+        self.fall_time_scale = ttk.Scale(fall_time_frame, from_=0.0, to=2000.0,
                                         variable=self.fall_time_var, orient=tk.HORIZONTAL)
         self.fall_time_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.fall_time_label = ttk.Label(fall_time_frame, text="100.0 ms")
@@ -249,7 +249,7 @@ class GuiMixin:
         record_frame = ttk.Frame(left_frame)
         record_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.record_time_var = tk.DoubleVar(value=30.0)
-        self.record_time_scale = ttk.Scale(record_frame, from_=1.0, to=120.0,
+        self.record_time_scale = ttk.Scale(record_frame, from_=5.0, to=300.0,
                                           variable=self.record_time_var, orient=tk.HORIZONTAL)
         self.record_time_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.record_time_label = ttk.Label(record_frame, text="30.0s")
@@ -263,7 +263,7 @@ class GuiMixin:
         stop_time_frame = ttk.Frame(left_frame)
         stop_time_frame.grid(row=row_left, column=1, sticky=(tk.W, tk.E), pady=5)
         self.stop_time_var = tk.DoubleVar(value=0.5)
-        self.stop_time_scale = ttk.Scale(stop_time_frame, from_=0.1, to=5.0,
+        self.stop_time_scale = ttk.Scale(stop_time_frame, from_=0.0, to=5.0,
                                         variable=self.stop_time_var, orient=tk.HORIZONTAL)
         self.stop_time_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.stop_time_label = ttk.Label(stop_time_frame, text="0.5s")

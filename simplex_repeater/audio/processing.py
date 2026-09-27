@@ -3,7 +3,7 @@ import numpy as np
 
 
 class ProcessingMixin:
-    
+
     # dB-Grenzwerte für Ein-/Ausgangsverstärker, app-weit für Slider und Clamping genutzt
     GAIN_DB_MIN = -30.0
     GAIN_DB_MAX = 30.0
@@ -17,7 +17,7 @@ class ProcessingMixin:
     # dieselbe Skala wie Start-/Stoppegel)
     AUTO_LEVEL_TARGET_LOW = 4000  # unterhalb: Verstärkung wird erhöht
     AUTO_LEVEL_TARGET_HIGH = 8000  # oberhalb: Verstärkung wird verringert
-    AUTO_LEVEL_SPEED_DB_PER_SEC = 6.0  # maximale Nachregelgeschwindigkeit in dB/s
+    AUTO_LEVEL_SPEED_DB_PER_SEC = 4.0  # maximale Nachregelgeschwindigkeit in dB/s
 
     def convert_channels(self, data, from_channels, to_channels):
         """Konvertiert Audio zwischen Mono und Stereo
@@ -106,7 +106,11 @@ class ProcessingMixin:
             result = audio_data.astype(np.int16).tobytes()
 
         if self.output_auto_level_var.get():
-            self._adjust_auto_gain(self.ouput_gain_var, self.calculate_level(result), '_output_agc_last_time')
+            level = self.calculate_level(result)
+            # Nur nachregeln solange tatsächlich ein Signal anliegt (über dem Startpegel),
+            # sonst läuft die Verstärkung bei Stille zum oberen Anschlag hoch
+            if level > self.start_threshold_var.get():
+                self._adjust_auto_gain(self.ouput_gain_var, level, '_output_agc_last_time')
 
         return result
 

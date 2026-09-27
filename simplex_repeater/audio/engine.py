@@ -262,7 +262,7 @@ class AudioEngineMixin:
         self.audio_buffer.clear()
         self.root.after(0, self.update_status, "Aufnahme läuft...", 'orange')
 
-        stop_threshold = self.stop_threshold_var.get()
+        # stop_threshold = self.stop_threshold_var.get()
         stop_time = self.stop_time_var.get()
         chunks_for_stop = int(self.RATE / self.CHUNK * stop_time)
         low_level_counter = 0
@@ -311,7 +311,7 @@ class AudioEngineMixin:
 
                 # Prüfe ob gedämpfter Pegel unter Abbruch-Pegel
                 # Verwende gedämpften Pegel für konsistente Triggerung
-                if self.current_damped_level < stop_threshold:
+                if self.current_damped_level < self.stop_threshold_var.get():
                     low_level_counter += 1
                     # Wenn Pegel lange genug unter Schwelle, breche ab
                     if low_level_counter >= chunks_for_stop:
