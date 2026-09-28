@@ -4,6 +4,11 @@ Ein flexibler Audio-Repeater mit grafischer Benutzeroberfläche, der Audio aufni
 
 ![Simplex Repeater Screenshot](images/simplex_repeater_screenshot.png)
 
+[Open Source: MIT Lizenz](https://github.com/steffomix/simplex_audio_repeater/blob/main/LICENSE)
+
+# Download
+[Download Simplex/Duplex Repeater latest](https://github.com/steffomix/simplex_audio_repeater/archive/refs/heads/main.zip)
+
 ## Schnellstart (auch ohne Programmiererfahrung)
 
 Für den Start wird nur ein Doppelklick benötigt - die Starter-Skripte kümmern sich automatisch um Python, die virtuelle Umgebung und alle Abhängigkeiten.
