@@ -2,9 +2,16 @@
 
 Ein flexibler Audio-Repeater mit grafischer Benutzeroberfläche, der Audio aufnimmt wenn ein Schwellwert überschritten wird und es danach sofort wieder abspielt. Unterstützt sowohl Simplex- (abwechselnd) als auch Duplex-Betrieb (gleichzeitig).
 
+## Screenshot
 ![Simplex Repeater Screenshot](images/simplex_repeater_screenshot.png)
 
-[Open Source: MIT Lizenz](https://github.com/steffomix/simplex_audio_repeater/blob/main/LICENSE)
+## Benötigte Hardware (Schaltung)
+
+### Schaltung CB Ausgang nach USB Eingang (Line-In) und Externer Lautsprecher
+![CB-to-USB](images/cb-to-usb-and-speaker_transformer.png)
+
+### Schaltung USB Ausgang (Line-Out) nach CB Externes Mikrofon (Vox Eingang)
+![USB-to-CB](images/usb-to-cb_transformer.png)
 
 # Download
 [Download Simplex/Duplex Repeater latest](https://github.com/steffomix/simplex_audio_repeater/archive/refs/heads/main.zip)
@@ -34,7 +41,8 @@ Sollte eines der Skripte nicht funktionieren, hilft der Abschnitt [Fehlerbehebun
 - **Einstellbarer Abbruchpegel**: Pegel zum automatischen Stoppen der Aufnahme (grüner Regler/grüner Balken)
 - **Schwellwerte direkt in der Pegelanzeige verschiebbar**: Die rote und grüne Linie lassen sich statt über den Schieberegler auch direkt mit der Maus in der Pegelanzeige ziehen
 - **Pegeldämpfung**: Attack/Release-Parameter für weichere Pegelübergänge
-- **Einstellbare Aufnahmezeit**: 1-120 Sekunden Aufnahmedauer
+- **Einstellbare Aufnahmezeit**: 5-300 Sekunden Aufnahmedauer
+- **Einstellbare Totzeit**: Verhindert rekursives Selbstauslösen der Vox Schaltung
 - **Auswählbare Audio-Quellen**: Wahl des Eingabe- und Ausgabegeräts, unterstützt Mono- und Stereo-Geräte
 - **Geräteliste aktualisieren**: Neu angeschlossene Audio-Geräte (z.B. USB-Soundkarten) können ohne Neustart des Programms erkannt werden
 - **Echtzeit-Pegelanzeige**: Visualisierung des aktuellen Audiopegels mit Schwellwert-Linien
