@@ -2,6 +2,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from tkinter import messagebox
 import pyaudio
 
@@ -98,6 +99,29 @@ class DevicesMixin:
         else:
             os.environ[var] = node
 
+    # Unter Windows listet PortAudio jedes Gerät einmal pro Host-API (MME,
+    # DirectSound, WASAPI, WDM-KS). Es wird nur eine davon verwendet; die
+    # Reihenfolge entspricht der Eignung: DirectSound (volle Gerätenamen,
+    # automatische Abtastratenumrechnung), dann MME. WASAPI (Shared-Modus)
+    # lehnt abweichende Abtastraten ab und wird deshalb nur als letzter
+    # Ausweg genommen.
+    _WINDOWS_HOST_API_PRIORITY = ['directsound', 'mme', 'wasapi']
+
+    def _select_windows_host_api(self):
+        """Gibt unter Windows (index, defaultInputDevice, defaultOutputDevice) der
+        gewählten Host-API zurück, sonst None (andere Plattformen)."""
+        if not sys.platform.startswith('win'):
+            return None
+        try:
+            apis = [self.p.get_host_api_info_by_index(i) for i in range(self.p.get_host_api_count())]
+        except Exception:
+            return None
+        for wanted in self._WINDOWS_HOST_API_PRIORITY:
+            for api in apis:
+                if wanted in api.get('name', '').lower():
+                    return api['index'], api.get('defaultInputDevice', -1), api.get('defaultOutputDevice', -1)
+        return None
+
     def get_device_channels(self, device_index):
         """Ermittelt die maximale Anzahl von Ein- und Ausgangskanälen für ein Gerät."""
         try:
@@ -128,12 +152,25 @@ class DevicesMixin:
         input_default_aliases = {}
         output_default_aliases = {}
 
+        windows_api = self._select_windows_host_api()
+
         for i in range(self.p.get_device_count()):
             info = self.p.get_device_info_by_index(i)
             raw_name = info['name']
             name_key = raw_name.strip().lower()
 
             if name_key in self._LOW_VALUE_DEVICE_NAMES:
+                continue
+
+            if windows_api is not None:
+                if info.get('hostApi') != windows_api[0]:
+                    continue
+                if info['maxInputChannels'] > 0:
+                    input_devices.append(self._windows_device_entry(
+                        i, raw_name, info['maxInputChannels'], i == windows_api[1]))
+                if info['maxOutputChannels'] > 0:
+                    output_devices.append(self._windows_device_entry(
+                        i, raw_name, info['maxOutputChannels'], i == windows_api[2]))
                 continue
 
             if info['maxInputChannels'] > 0:
@@ -185,6 +222,13 @@ class DevicesMixin:
         if not (preserve_selection and
                 self._select_device_by_raw_name(self.output_device_combo, output_devices, previous_output_raw)):
             self._select_default_device(self.output_device_combo, output_devices)
+
+    @staticmethod
+    def _windows_device_entry(index, raw_name, max_channels, is_default):
+        channels = 2 if max_channels >= 2 else 1
+        channel_info = "Stereo" if channels == 2 else "Mono"
+        label = f"System-Standard ({raw_name})" if is_default else raw_name
+        return (index, f"{index}: {label} ({channel_info})", channels, raw_name)
 
     def _add_system_default_entry(self, devices, aliases):
         """Fügt genau einen "System-Standard"-Eintrag hinzu, sofern mindestens

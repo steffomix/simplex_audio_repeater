@@ -210,6 +210,10 @@ ALSA-Hardwarezugriff) ein anderes Eingabe-/Ausgabegerät aus.
 - Klicken Sie auf **"Geräte aktualisieren"** (unterhalb von Start/Stop) - PortAudio erfasst neu angeschlossene Geräte (z.B. USB-Soundkarten) nur beim (Neu-)Initialisieren, nicht automatisch während das Programm läuft.
 - Prüfen Sie mit `python debug_devices.py`, ob das Betriebssystem das Gerät überhaupt erkennt.
 
+#### Hinweise zu Windows
+- Windows ist bisher nur eingeschränkt getestet. Unter Windows zeigt PortAudio jedes Gerät mehrfach an (je Audio-Schnittstelle: MME, DirectSound, WASAPI, WDM-KS). Das Programm verwendet deshalb nur **DirectSound** (ersatzweise MME bzw. WASAPI) und kennzeichnet das in Windows eingestellte Standardgerät als "System-Standard".
+- Bei Problemen mit der Geräteauswahl bitte die Ausgabe von `python debug_devices.py` mitschicken (sie enthält die Audio-Schnittstelle jedes Geräts).
+
 #### Das Programm findet ein zuvor ausgewähltes Gerät nicht mehr
 - Das kann passieren, wenn sich der Geräte-Index seit dem letzten Start geändert hat (z.B. weil ein anderes USB-Gerät an-/abgesteckt wurde). Wählen Sie das Gerät einfach erneut in der Dropdown-Liste aus - die Auswahl wird gespeichert.
 
