@@ -1,5 +1,11 @@
+import json
+import os
+import re
+import subprocess
 from tkinter import messagebox
 import pyaudio
+
+_PULSE_PREFIX = "pulse:"
 
 
 class DevicesMixin:
@@ -17,6 +23,80 @@ class DevicesMixin:
     # dieser Prioritätsreihenfolge erste gefundene Alias zu einem einzigen,
     # klar beschrifteten "System-Standard"-Eintrag zusammengefasst.
     _SYSTEM_DEFAULT_ALIASES = ['pipewire', 'pulse', 'default']
+
+    # Unter PipeWire/PulseAudio sind die echten ALSA-Karten ("hw:X,Y") meist vom
+    # Soundserver belegt: PortAudio meldet sie dann ohne Kanäle (Gerät fehlt in der
+    # Liste, z.B. das im System-Klangdialog gewählte) oder kann sie nicht öffnen.
+    # Deshalb werden die Geräte des Soundservers (Sinks/Sources) per "pactl"
+    # ermittelt und über das PortAudio-Gerät "pulse" angesprochen. Die Auswahl des
+    # konkreten Geräts erfolgt über PULSE_SINK / PULSE_SOURCE.
+    _PULSE_ENV = {'output': 'PULSE_SINK', 'input': 'PULSE_SOURCE'}
+    _ORIGINAL_PULSE_ENV = {var: os.environ.get(var) for var in _PULSE_ENV.values()}
+
+    @staticmethod
+    def _query_pulse_nodes(kind):
+        """Liefert [(node_name, beschreibung, kanäle)] der Sinks ('output') bzw.
+        Sources ('input', ohne Monitore). Leere Liste, wenn pactl nicht verfügbar ist."""
+        try:
+            result = subprocess.run(
+                ['pactl', '-f', 'json', 'list', 'sinks' if kind == 'output' else 'sources'],
+                capture_output=True, timeout=5,
+                env={**os.environ, 'LC_ALL': 'C.UTF-8'})
+            if result.returncode != 0:
+                return []
+            entries = json.loads(result.stdout.decode('utf-8', errors='replace'))
+        except Exception:
+            return []
+
+        nodes = []
+        for entry in entries:
+            node = entry.get('name', '')
+            if not node:
+                continue
+            is_monitor = (entry.get('properties', {}).get('device.class') == 'monitor'
+                          or node.endswith('.monitor'))
+            if kind == 'input' and is_monitor:
+                continue
+            match = re.search(r'(\d+)ch', entry.get('sample_specification', ''))
+            channels = 2 if match and int(match.group(1)) >= 2 else 1
+            nodes.append((node, entry.get('description') or node, channels))
+        return nodes
+
+    def _add_pulse_entries(self, devices, kind, pulse_index):
+        """Ersetzt die rohen ALSA-Hardwaregeräte durch die Geräte des Soundservers.
+        Gibt False zurück, wenn keine Soundserver-Geräte verfügbar sind."""
+        if pulse_index is None:
+            return False
+        nodes = self._query_pulse_nodes(kind)
+        if not nodes:
+            return False
+        devices[:] = [d for d in devices if "System-Standard" in d[1]]
+        used_names = {d[1] for d in devices}
+        for node, description, channels in nodes:
+            channel_info = "Stereo" if channels == 2 else "Mono"
+            name = f"{description} ({channel_info})"
+            if name in used_names:
+                name = f"{description} [{node}] ({channel_info})"
+            used_names.add(name)
+            devices.append((pulse_index, name, channels, _PULSE_PREFIX + node))
+        return True
+
+    @staticmethod
+    def _pulse_node_from_raw(raw_name):
+        if raw_name and raw_name.startswith(_PULSE_PREFIX):
+            return raw_name[len(_PULSE_PREFIX):]
+        return None
+
+    def _apply_pulse_node(self, kind, raw_name):
+        """Setzt bzw. entfernt PULSE_SINK/PULSE_SOURCE, bevor ein Stream geöffnet wird."""
+        var = self._PULSE_ENV[kind]
+        node = self._pulse_node_from_raw(raw_name)
+        if node is None:
+            node = self._ORIGINAL_PULSE_ENV[var]
+        if node is None:
+            os.environ.pop(var, None)
+        else:
+            os.environ[var] = node
 
     def get_device_channels(self, device_index):
         """Ermittelt die maximale Anzahl von Ein- und Ausgangskanälen für ein Gerät."""
@@ -76,6 +156,9 @@ class DevicesMixin:
 
         self._add_system_default_entry(input_devices, input_default_aliases)
         self._add_system_default_entry(output_devices, output_default_aliases)
+
+        self._add_pulse_entries(input_devices, 'input', input_default_aliases.get('pulse', (None,))[0])
+        self._add_pulse_entries(output_devices, 'output', output_default_aliases.get('pulse', (None,))[0])
 
         # Sortiere Geräte: System-Standard zuerst, dann Stereo, dann Mono
         input_devices.sort(key=self._device_sort_key)
@@ -222,6 +305,8 @@ class DevicesMixin:
             # Neue Streams öffnen
             input_device_id, input_channels = self.get_selected_input_device()
             output_device_id, output_channels = self.get_selected_output_device()
+            self._apply_pulse_node('input', self.input_device_raw_names.get(self.input_device_var.get()))
+            self._apply_pulse_node('output', self.output_device_raw_names.get(self.output_device_var.get()))
 
             # Speichere die tatsächlichen Kanalanzahlen
             self.input_channels = input_channels
